@@ -34,6 +34,13 @@ class TransitionEvent:
     from_cell: tuple
     to_cell: tuple
     direction: str
+    # Extra state purely for presentation (e.g. a camera-slide effect).
+    # Physics/transition logic above never reads these back -- they exist
+    # only so main.py doesn't have to reconstruct them itself.
+    from_room: AssembledRoom
+    to_room: AssembledRoom
+    from_pos: tuple  # (x, y) room-local px, in from_room, before the move
+    to_pos: tuple  # (x, y) room-local px, in to_room, after the move
 
 
 class GameWorld:
@@ -88,6 +95,8 @@ class GameWorld:
 
     def _transition_through(self, crossing: DoorCrossing) -> None:
         from_coord = self._owning_cell(crossing)
+        from_room = self.current_room
+        from_pos = (self.body.x, self.body.y)
         new_room = self.loader.assemble_from(crossing.target_cell)
 
         # Find the matching door on the target side (the target cell's own
@@ -120,6 +129,10 @@ class GameWorld:
             from_cell=from_coord,
             to_cell=crossing.target_cell,
             direction=crossing.direction,
+            from_room=from_room,
+            to_room=new_room,
+            from_pos=from_pos,
+            to_pos=(new_x, new_y),
         )
         self.current_room = new_room
         self.crumble = CrumbleTracker()

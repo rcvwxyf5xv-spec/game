@@ -174,6 +174,16 @@ def assemble(start_coord: GridCoord, fetch_cell: CellFetcher) -> AssembledRoom:
     )
 
 
+def room_origin_px(room: AssembledRoom) -> Tuple[float, float]:
+    """World-pixel position of this room's top-left corner. Since every
+    room's tile grid is stitched from the same global cell grid, two
+    rooms' pixel rects line up consistently in this shared space -- that
+    is what lets the presentation layer pan a camera across both of them
+    during a door transition instead of just cutting between them."""
+    ox, oy = room.origin
+    return ox * CELL_WIDTH_PX, oy * CELL_HEIGHT_PX
+
+
 def local_tile_offset(room: AssembledRoom, coord: GridCoord) -> Tuple[int, int]:
     """Tile offset (within `room`'s stitched grid) of the given member cell."""
     return (
