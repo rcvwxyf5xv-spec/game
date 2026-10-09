@@ -12,7 +12,15 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 
-from src.data.schema import ALL_DIRECTIONS, Cell, Edge, WorldIndex
+from src.data.schema import (
+    ALL_DIRECTIONS,
+    TILE_KINDS,
+    Cell,
+    Edge,
+    Tile,
+    WorldIndex,
+    tile_from_legacy_id,
+)
 
 
 def edge_to_dict(edge: Edge) -> Dict[str, Any]:
@@ -35,11 +43,31 @@ def edge_from_dict(direction: str, data: Dict[str, Any]) -> Edge:
     )
 
 
+def tile_to_dict(tile: Tile) -> Dict[str, Any]:
+    if isinstance(tile, int):  # legacy generator output (plain tile ids)
+        tile = tile_from_legacy_id(tile)
+    data: Dict[str, Any] = {"kind": tile.kind}
+    if tile.palette:
+        data["palette"] = tile.palette
+    return data
+
+
+def tile_from_dict(data) -> Tile:
+    """Build a Tile from a JSON node: either a per-tile dict or a legacy
+    integer tile id (old cell files)."""
+    if isinstance(data, int):
+        return tile_from_legacy_id(data)
+    return Tile(
+        kind=data.get("kind", "empty"),
+        palette=data.get("palette", ""),
+    )
+
+
 def cell_to_dict(cell: Cell) -> Dict[str, Any]:
     return {
         "coord": list(cell.coord),
         "zone": cell.zone,
-        "tiles": [list(row) for row in cell.tiles],
+        "tiles": [[tile_to_dict(tile) for tile in row] for row in cell.tiles],
         "edges": {
             direction: edge_to_dict(cell.edge(direction))
             for direction in ALL_DIRECTIONS
@@ -57,9 +85,22 @@ def cell_from_dict(data: Dict[str, Any]) -> Cell:
         for direction in ALL_DIRECTIONS
         if direction in edges_data
     }
+    coord = tuple(data["coord"])
+    tiles = []
+    for y, row in enumerate(data["tiles"]):
+        tile_row = []
+        for x, raw in enumerate(row):
+            tile = tile_from_dict(raw)
+            if tile.kind not in TILE_KINDS:
+                raise ValueError(
+                    f"Cell {coord}, tile ({x}, {y}): unknown tile kind "
+                    f"{tile.kind!r} (expected one of {TILE_KINDS})"
+                )
+            tile_row.append(tile)
+        tiles.append(tuple(tile_row))
     return Cell(
-        coord=tuple(data["coord"]),
-        tiles=tuple(tuple(row) for row in data["tiles"]),
+        coord=coord,
+        tiles=tuple(tiles),
         edges=edges,
         zone=data.get("zone", ""),
         entities=tuple(data.get("entities", [])),
@@ -88,7 +129,34 @@ def world_index_from_dict(data: Dict[str, Any]) -> WorldIndex:
 
 
 def save_cell(cell: Cell, path: Path) -> None:
-    path.write_text(json.dumps(cell_to_dict(cell), indent=2))
+    """Write `cell` as JSON with each `tiles` row on a single line.
+
+    Per-tile dicts would make plain `json.dumps(..., indent=2)` extremely
+    verbose (~100 lines for one 16-tile row), so rows are serialized
+    compactly and assembled by hand. Top-level keys stay indented; the
+    output is still plain JSON that `load_cell`'s `json.loads` reads fine.
+    Deterministic: built purely from dict insertion order.
+    """
+    data = cell_to_dict(cell)
+    lines = ["{"]
+    count = len(data)
+    for idx, (key, value) in enumerate(data.items()):
+        comma = "," if idx < count - 1 else ""
+        if key == "tiles":
+            lines.append('  "tiles": [')
+            rows = value
+            for row_idx, row in enumerate(rows):
+                suffix = "," if row_idx < len(rows) - 1 else ""
+                lines.append(
+                    f"    {json.dumps(row, separators=(', ', ': '))}{suffix}"
+                )
+            lines.append(f"  ]{comma}")
+        else:
+            serialized = json.dumps(value, indent=2)
+            serialized = serialized.replace("\n", "\n  ")
+            lines.append(f'  "{key}": {serialized}{comma}')
+    lines.append("}")
+    path.write_text("\n".join(lines))
 
 
 def load_cell(path: Path) -> Cell:

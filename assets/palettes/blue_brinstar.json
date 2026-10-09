@@ -1,0 +1,37 @@
+{
+  "name": "blue_brinstar",
+  "display_name": "Blue Brinstar Rock",
+  "tile_px": 48,
+  "build": {
+    "generator": "voxel_rock",
+    "colors": {
+      "rock": [
+        [12, 20, 34],
+        [20, 32, 52],
+        [30, 46, 72],
+        [42, 62, 94],
+        [56, 82, 118],
+        [74, 104, 146],
+        [96, 130, 176],
+        [124, 162, 208]
+      ],
+      "cap": [
+        [60, 140, 168],
+        [84, 168, 196],
+        [110, 198, 224],
+        [138, 220, 244],
+        [168, 236, 252],
+        [198, 248, 255],
+        [224, 255, 255],
+        [248, 255, 255]
+      ],
+      "accent": [150, 220, 255]
+    }
+  },
+  "textures": {
+    "solid":   {"file": "solid.png",   "layout": "autotile16", "variants": 4, "overhang_px": 9},
+    "oneway":  {"file": "oneway.png",  "layout": "variants",   "variants": 4},
+    "spring":  {"file": "spring.png",  "layout": "frames",     "frames": 3, "frame_ticks": 6},
+    "crumble": {"file": "crumble.png", "layout": "stages",     "stages": 4}
+  }
+}

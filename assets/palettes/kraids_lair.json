@@ -1,0 +1,37 @@
+{
+  "name": "kraids_lair",
+  "display_name": "Kraid's Lair Rock",
+  "tile_px": 48,
+  "build": {
+    "generator": "voxel_rock",
+    "colors": {
+      "rock": [
+        [30, 26, 10],
+        [44, 38, 14],
+        [60, 52, 20],
+        [80, 68, 26],
+        [102, 88, 34],
+        [128, 110, 44],
+        [158, 136, 56],
+        [192, 164, 70]
+      ],
+      "cap": [
+        [70, 62, 26],
+        [92, 82, 34],
+        [116, 104, 44],
+        [142, 128, 56],
+        [170, 152, 68],
+        [198, 178, 82],
+        [226, 204, 98],
+        [250, 230, 116]
+      ],
+      "accent": [255, 220, 110]
+    }
+  },
+  "textures": {
+    "solid":   {"file": "solid.png",   "layout": "autotile16", "variants": 4, "overhang_px": 9},
+    "oneway":  {"file": "oneway.png",  "layout": "variants",   "variants": 4},
+    "spring":  {"file": "spring.png",  "layout": "frames",     "frames": 3, "frame_ticks": 6},
+    "crumble": {"file": "crumble.png", "layout": "stages",     "stages": 4}
+  }
+}

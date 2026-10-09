@@ -1,0 +1,37 @@
+{
+  "name": "green_brinstar",
+  "display_name": "Green Brinstar Rock",
+  "tile_px": 48,
+  "build": {
+    "generator": "voxel_rock",
+    "colors": {
+      "rock": [
+        [10, 20, 14],
+        [18, 32, 22],
+        [28, 48, 34],
+        [40, 66, 48],
+        [54, 88, 64],
+        [72, 112, 82],
+        [92, 140, 102],
+        [116, 172, 126]
+      ],
+      "cap": [
+        [48, 110, 60],
+        [66, 136, 78],
+        [88, 162, 98],
+        [112, 190, 118],
+        [138, 214, 140],
+        [164, 234, 160],
+        [190, 248, 180],
+        [216, 255, 200]
+      ],
+      "accent": [160, 255, 150]
+    }
+  },
+  "textures": {
+    "solid":   {"file": "solid.png",   "layout": "autotile16", "variants": 4, "overhang_px": 9},
+    "oneway":  {"file": "oneway.png",  "layout": "variants",   "variants": 4},
+    "spring":  {"file": "spring.png",  "layout": "frames",     "frames": 3, "frame_ticks": 6},
+    "crumble": {"file": "crumble.png", "layout": "stages",     "stages": 4}
+  }
+}

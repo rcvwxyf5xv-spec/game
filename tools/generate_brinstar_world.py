@@ -33,6 +33,7 @@ from src.data.schema import (
     SOUTH,
     WEST,
     WorldIndex,
+    tile_from_legacy_id,
 )
 from src.data.serialize import save_cell, save_world_index
 from src.engine.constants import (
@@ -47,6 +48,17 @@ from src.engine.constants import (
 
 CELLS_DIR = ROOT / "src" / "data" / "cells"
 WORLD_INDEX_PATH = ROOT / "src" / "data" / "world_index.json"
+
+# Zone name -> texture palette label, same mapping used by
+# tools.migrate_cells_to_tiles (kept here too so this generator is
+# self-contained). Empty tiles get no palette.
+ZONE_PALETTES = {
+    "Blue Brinstar": "blue_brinstar",
+    "Green Brinstar": "green_brinstar",
+    "Pink Brinstar": "pink_brinstar",
+    "Red Brinstar": "red_brinstar",
+    "Kraid's Lair": "kraids_lair",
+}
 
 DOOR_ROW = CH - 3
 DOOR_COL = CW // 2
@@ -1084,9 +1096,17 @@ def main():
     cell_files = {}
     for coord, info in cell_registry.items():
         edges = all_edges.get(coord, {})
+        palette = ZONE_PALETTES.get(info["zone"], "default")
+        tiles = tuple(
+            tuple(
+                tile_from_legacy_id(t, palette if t != TILE_EMPTY else "")
+                for t in row
+            )
+            for row in info["tiles"]
+        )
         cell = Cell(
             coord=coord,
-            tiles=tuple(tuple(row) for row in info["tiles"]),
+            tiles=tiles,
             edges=edges,
             zone=info["zone"],
             background_color=info["bg_color"],

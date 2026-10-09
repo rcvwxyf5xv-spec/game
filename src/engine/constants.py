@@ -29,6 +29,17 @@ TILE_SPRING = 2
 TILE_ONEWAY_PLAT = 3
 TILE_CRUMBLE = 4
 
+# Map from the data layer's tile *kind* strings (src.data.schema) to the
+# integer ids the physics code consumes. Kept here with plain string
+# literals so this module stays standalone (no import from src.data).
+TILE_KIND_IDS = {
+    "empty": TILE_EMPTY,
+    "solid": TILE_SOLID,
+    "spring": TILE_SPRING,
+    "oneway": TILE_ONEWAY_PLAT,
+    "crumble": TILE_CRUMBLE,
+}
+
 # Physics tuning
 GRAVITY = 0.45
 MAX_FALL_SPEED = 9.0

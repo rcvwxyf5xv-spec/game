@@ -21,6 +21,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from src.data.schema import (
     ALL_DIRECTIONS,
+    TILE_KIND_SOLID,
     Cell,
     DIRECTION_DELTA,
     EDGE_DOOR,
@@ -31,6 +32,7 @@ from src.engine.constants import (
     CELL_HEIGHT_TILES,
     CELL_WIDTH_TILES,
     MAX_ASSEMBLED_CELLS,
+    TILE_KIND_IDS,
     TILE_SIZE,
     TILE_SOLID,
 )
@@ -68,6 +70,12 @@ class AssembledRoom:
     width: int  # tiles
     height: int  # tiles
     tiles: List[List[int]]
+    # Per-tile palette labels, parallel to `tiles` (same dims). "" means
+    # "use the room's default palette" (see `default_palette`).
+    tile_palettes: List[List[str]] = field(default_factory=list)
+    # Most common non-empty palette among this room's solid tiles (see
+    # assemble()); the fallback the renderer uses for ""-labelled tiles.
+    default_palette: str = ""
     door_crossings: List[DoorCrossing] = field(default_factory=list)
     entities: List[dict] = field(default_factory=list)
     background_color: Tuple[int, int, int] = (18, 18, 28)
@@ -120,6 +128,9 @@ def assemble(start_coord: GridCoord, fetch_cell: CellFetcher) -> AssembledRoom:
     height = bbox_cells_h * CELL_HEIGHT_TILES
 
     tiles = [[TILE_SOLID for _ in range(width)] for _ in range(height)]
+    tile_palettes = [["" for _ in range(width)] for _ in range(height)]
+    solid_palette_counts: Dict[str, int] = {}
+    any_palette_counts: Dict[str, int] = {}
     entities: List[dict] = []
     door_crossings: List[DoorCrossing] = []
 
@@ -131,7 +142,16 @@ def assemble(start_coord: GridCoord, fetch_cell: CellFetcher) -> AssembledRoom:
 
         for ty, row in enumerate(cell.tiles):
             for tx, tile in enumerate(row):
-                tiles[tile_off_y + ty][tile_off_x + tx] = tile
+                tiles[tile_off_y + ty][tile_off_x + tx] = TILE_KIND_IDS[tile.kind]
+                palette = tile.palette
+                tile_palettes[tile_off_y + ty][tile_off_x + tx] = palette
+                if not palette:
+                    continue
+                any_palette_counts[palette] = any_palette_counts.get(palette, 0) + 1
+                if tile.kind == TILE_KIND_SOLID:
+                    solid_palette_counts[palette] = (
+                        solid_palette_counts.get(palette, 0) + 1
+                    )
 
         for entity in cell.entities:
             moved = dict(entity)
@@ -159,6 +179,18 @@ def assemble(start_coord: GridCoord, fetch_cell: CellFetcher) -> AssembledRoom:
                 )
             )
 
+    # default_palette: most common non-empty palette among solid tiles,
+    # falling back to the most common non-empty palette of any kind, then
+    # to "". Ties broken alphabetically first for determinism.
+    def _most_common(palette_counts: Dict[str, int]) -> str:
+        if not palette_counts:
+            return ""
+        return max(sorted(palette_counts), key=palette_counts.__getitem__)
+
+    default_palette = _most_common(solid_palette_counts) or _most_common(
+        any_palette_counts
+    )
+
     anchor = members[start_coord]
     return AssembledRoom(
         cells=list(members.keys()),
@@ -166,6 +198,8 @@ def assemble(start_coord: GridCoord, fetch_cell: CellFetcher) -> AssembledRoom:
         width=width,
         height=height,
         tiles=tiles,
+        tile_palettes=tile_palettes,
+        default_palette=default_palette,
         door_crossings=door_crossings,
         entities=entities,
         background_color=anchor.background_color,

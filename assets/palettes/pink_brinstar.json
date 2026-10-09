@@ -1,0 +1,37 @@
+{
+  "name": "pink_brinstar",
+  "display_name": "Pink Brinstar Rock",
+  "tile_px": 48,
+  "build": {
+    "generator": "voxel_rock",
+    "colors": {
+      "rock": [
+        [30, 10, 24],
+        [46, 16, 38],
+        [66, 24, 54],
+        [88, 34, 72],
+        [112, 46, 94],
+        [140, 62, 118],
+        [170, 82, 144],
+        [204, 106, 172]
+      ],
+      "cap": [
+        [128, 58, 116],
+        [154, 74, 140],
+        [180, 92, 164],
+        [204, 112, 188],
+        [226, 134, 208],
+        [242, 158, 226],
+        [252, 184, 240],
+        [255, 214, 250]
+      ],
+      "accent": [255, 190, 230]
+    }
+  },
+  "textures": {
+    "solid":   {"file": "solid.png",   "layout": "autotile16", "variants": 4, "overhang_px": 9},
+    "oneway":  {"file": "oneway.png",  "layout": "variants",   "variants": 4},
+    "spring":  {"file": "spring.png",  "layout": "frames",     "frames": 3, "frame_ticks": 6},
+    "crumble": {"file": "crumble.png", "layout": "stages",     "stages": 4}
+  }
+}

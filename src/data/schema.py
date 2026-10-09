@@ -29,6 +29,12 @@ Cells, not rooms, are the unit of data:
     An optional `zone` string on a Cell is purely cosmetic metadata (map
     label, music cue, ambience) -- it has no bearing on what gets loaded
     together. Loading groups are decided only by edge types.
+
+Tiles carry their own data:
+    Each tile in a Cell is a Tile (see below): a collision `kind` (what
+    the physics should treat it as) plus a `palette` label (which named
+    texture set it should be drawn with, resolved by the renderer). A
+    palette of "" means "use the room's default palette".
 """
 
 from __future__ import annotations
@@ -62,6 +68,50 @@ OPPOSITE_DIRECTION = {
     WEST: EAST,
 }
 
+TILE_KIND_EMPTY = "empty"
+TILE_KIND_SOLID = "solid"
+TILE_KIND_SPRING = "spring"
+TILE_KIND_ONEWAY = "oneway"
+TILE_KIND_CRUMBLE = "crumble"
+TILE_KINDS = (
+    TILE_KIND_EMPTY,
+    TILE_KIND_SOLID,
+    TILE_KIND_SPRING,
+    TILE_KIND_ONEWAY,
+    TILE_KIND_CRUMBLE,
+)
+# legacy integer ids used by the old cell files (0..4, same order as above)
+LEGACY_TILE_IDS = {
+    0: TILE_KIND_EMPTY,
+    1: TILE_KIND_SOLID,
+    2: TILE_KIND_SPRING,
+    3: TILE_KIND_ONEWAY,
+    4: TILE_KIND_CRUMBLE,
+}
+
+
+@dataclass(frozen=True)
+class Tile:
+    """One map tile: what it does (kind -> collision behaviour) and what it
+    looks like (palette -> named texture set, resolved by the renderer).
+    An empty palette string means "use the room's default palette"."""
+
+    kind: str = TILE_KIND_EMPTY
+    palette: str = ""
+
+
+EMPTY_TILE = Tile()
+
+
+def tile_from_legacy_id(tile_id: int, palette: str = "") -> Tile:
+    """Convert an old-style integer tile id (0..4, see LEGACY_TILE_IDS)
+    into a Tile."""
+    try:
+        kind = LEGACY_TILE_IDS[tile_id]
+    except KeyError:
+        raise ValueError(f"Unknown legacy tile id: {tile_id!r}") from None
+    return Tile(kind=kind, palette=palette)
+
 
 @dataclass(frozen=True)
 class Edge:
@@ -94,7 +144,7 @@ class Cell:
 
     coord: GridCoord
     # Tile grid local to this cell only, CELL_WIDTH_TILES x CELL_HEIGHT_TILES.
-    tiles: Tuple[Tuple[int, ...], ...]
+    tiles: Tuple[Tuple[Tile, ...], ...]
     edges: Dict[str, Edge] = field(default_factory=dict)
     # Cosmetic-only grouping label (map name, music track, etc). Never
     # consulted by the loader/assembler.
