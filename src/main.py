@@ -40,8 +40,11 @@ from src.engine.constants import (  # noqa: E402
     FPS,
     JUMP_SPEED,
     MOVE_SPEED,
+    TILE_CRUMBLE,
+    TILE_ONEWAY_PLAT,
     TILE_SIZE,
     TILE_SOLID,
+    TILE_SPRING,
 )
 from src.engine.game_world import GameWorld  # noqa: E402
 from src.engine.world_loader import WorldLoader  # noqa: E402
@@ -54,8 +57,18 @@ WORLD_INDEX_PATH = ROOT / "src" / "data" / "world_index.json"
 CELLS_DIR = ROOT / "src" / "data" / "cells"
 
 SOLID_COLOR = (90, 90, 110)
+SPRING_COLOR = (60, 240, 120)
+ONEWAY_COLOR = (180, 140, 60)
+CRUMBLE_COLOR = (160, 100, 100)
 GRID_LINE_COLOR = (255, 255, 255)
 PLAYER_COLOR = (240, 210, 60)
+
+TILE_COLORS = {
+    TILE_SOLID: SOLID_COLOR,
+    TILE_SPRING: SPRING_COLOR,
+    TILE_ONEWAY_PLAT: ONEWAY_COLOR,
+    TILE_CRUMBLE: CRUMBLE_COLOR,
+}
 
 
 def compute_camera(world: GameWorld):
@@ -83,20 +96,25 @@ def draw_room(surface, world: GameWorld, cam_x: float, cam_y: float) -> None:
 
     for ty, row in enumerate(room.tiles):
         for tx, tile in enumerate(row):
-            if tile != TILE_SOLID:
+            color = TILE_COLORS.get(tile)
+            if color is None:
                 continue
             px = (tx * TILE_SIZE - cam_x) * SCALE
             py = (ty * TILE_SIZE - cam_y) * SCALE
             size = TILE_SIZE * SCALE
             if px + size < 0 or py + size < 0 or px > WINDOW_W or py > WINDOW_H:
                 continue
-            rect_points = [
-                (px, py),
-                (px + size, py),
-                (px + size, py + size),
-                (px, py + size),
-            ]
-            pygame.draw.polygon(surface, SOLID_COLOR, rect_points)
+            if tile == TILE_ONEWAY_PLAT:
+                pygame.draw.rect(surface, color, (px, py, size, size * 0.25))
+            elif tile == TILE_SPRING:
+                pygame.draw.rect(surface, color, (px, py + size * 0.5, size, size * 0.5))
+                pygame.draw.polygon(surface, (80, 255, 150), [
+                    (px + size * 0.5, py + size * 0.15),
+                    (px + size * 0.2, py + size * 0.5),
+                    (px + size * 0.8, py + size * 0.5),
+                ])
+            else:
+                pygame.draw.rect(surface, color, (px, py, size, size))
 
     # Overlay dashed grid lines on multiples of one world cell, proving
     # this room is built from 1x1 grid squares even when it spans several.
@@ -164,7 +182,7 @@ def main() -> None:
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("monospace", 13)
 
-    loader = WorldLoader(WORLD_INDEX_PATH, CELLS_DIR, cache_size=4)
+    loader = WorldLoader(WORLD_INDEX_PATH, CELLS_DIR, cache_size=32)
     world = GameWorld(loader)
 
     running = True
@@ -172,8 +190,11 @@ def main() -> None:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                elif event.key in (pygame.K_SPACE, pygame.K_UP, pygame.K_w):
+                    world.jump(JUMP_SPEED)
 
         keys = pygame.key.get_pressed()
         direction = 0
@@ -182,8 +203,6 @@ def main() -> None:
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
             direction += 1
         world.set_horizontal_input(direction, MOVE_SPEED)
-        if keys[pygame.K_SPACE] or keys[pygame.K_UP] or keys[pygame.K_w]:
-            world.jump(JUMP_SPEED)
 
         world.update()
         if world.last_transition is not None:

@@ -25,12 +25,18 @@ FPS = 60
 # Tile type ids used by the cell data files.
 TILE_EMPTY = 0
 TILE_SOLID = 1
+TILE_SPRING = 2
+TILE_ONEWAY_PLAT = 3
+TILE_CRUMBLE = 4
 
 # Physics tuning
 GRAVITY = 0.45
 MAX_FALL_SPEED = 9.0
 MOVE_SPEED = 2.6
 JUMP_SPEED = -8.2
+SPRING_BOUNCE_SPEED = -10.5
+CRUMBLE_DELAY_FRAMES = 15
+CRUMBLE_RESPAWN_FRAMES = 180
 
 # Safety cap for engine.room_assembler's flood fill: the maximum number
 # of cells that can be merged into one loaded, contiguous playspace via

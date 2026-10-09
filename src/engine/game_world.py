@@ -20,7 +20,7 @@ from typing import Optional
 
 from src.data.schema import EAST, NORTH, SOUTH, WEST
 from src.engine.constants import CELL_HEIGHT_TILES, CELL_WIDTH_TILES, TILE_SIZE
-from src.engine.physics import AABBBody, apply_gravity, move_and_collide
+from src.engine.physics import AABBBody, CrumbleTracker, apply_gravity, move_and_collide
 from src.engine.room_assembler import AssembledRoom, DoorCrossing, local_tile_offset
 from src.engine.world_loader import WorldLoader
 
@@ -48,6 +48,9 @@ class GameWorld:
             height=PLAYER_H,
         )
         self.last_transition: Optional[TransitionEvent] = None
+        self.crumble = CrumbleTracker()
+        self.max_jumps = 2
+        self.jumps_remaining = self.max_jumps
 
     @staticmethod
     def _spawn_tile(room: AssembledRoom):
@@ -119,6 +122,7 @@ class GameWorld:
             direction=crossing.direction,
         )
         self.current_room = new_room
+        self.crumble = CrumbleTracker()
         self.body.x = new_x
         self.body.y = new_y
         # Velocity is deliberately preserved (not zeroed) so movement
@@ -157,10 +161,17 @@ class GameWorld:
     def jump(self, jump_speed: float) -> None:
         if self.body.on_ground:
             self.body.vy = jump_speed
+            self.jumps_remaining = self.max_jumps - 1
+        elif self.jumps_remaining > 0:
+            self.body.vy = jump_speed
+            self.jumps_remaining -= 1
 
     def update(self) -> None:
         apply_gravity(self.body)
-        move_and_collide(self.body, self.current_room.tiles)
+        move_and_collide(self.body, self.current_room.tiles, self.crumble)
+        self.crumble.update(self.current_room.tiles)
+        if self.body.on_ground:
+            self.jumps_remaining = self.max_jumps
         self._try_transition()
 
     def current_world_cell(self):

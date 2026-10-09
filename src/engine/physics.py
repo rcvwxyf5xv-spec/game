@@ -1,36 +1,38 @@
 """
 Pure tile-grid collision/physics. This module knows nothing about rooms,
 doors, the world grid, JSON, or pygame rendering -- it only operates on:
-  - a 2D list-of-lists of tile ids (0 = empty, 1 = solid)
+  - a 2D list-of-lists of tile ids
   - an axis-aligned bounding box with a velocity
 
-Keeping this separate from src/data/* and src/engine/world_loader.py is
-what lets the map/world be swapped out (new campaign, mod, procedurally
-generated dungeon) without touching how movement/collision works, and
-vice versa: physics can be tuned without touching map data.
+Tile types:
+  0 = empty
+  1 = solid (always blocks)
+  2 = spring (solid surface; bounces player upward on landing)
+  3 = one-way platform (blocks only when falling onto from above)
+  4 = crumble block (solid until stepped on, then collapses)
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Dict, Tuple
 
 from src.engine.constants import (
+    CRUMBLE_DELAY_FRAMES,
+    CRUMBLE_RESPAWN_FRAMES,
     GRAVITY,
     MAX_FALL_SPEED,
+    SPRING_BOUNCE_SPEED,
+    TILE_CRUMBLE,
     TILE_EMPTY,
+    TILE_ONEWAY_PLAT,
     TILE_SIZE,
     TILE_SOLID,
+    TILE_SPRING,
 )
 
 
 def tile_at(tiles, tile_x: int, tile_y: int) -> int:
-    """Out-of-bounds tiles are treated as empty. Every room is expected to
-    author a solid 1-tile border around itself (with explicit gaps only
-    where a door should let the player pass through), so this is what
-    actually contains the player -- not a hardcoded out-of-bounds wall.
-    That's what lets a player walk straight through a door gap and out
-    past the edge of the tile grid, where game_world.py is watching for
-    exactly that to trigger a room transition."""
     if tile_y < 0 or tile_y >= len(tiles):
         return TILE_EMPTY
     row = tiles[tile_y]
@@ -45,6 +47,18 @@ def _tile_range(pos: float, size: float):
     return range(start, end + 1)
 
 
+def _is_blocking_x(tile_id: int) -> bool:
+    return tile_id in (TILE_SOLID, TILE_SPRING, TILE_CRUMBLE)
+
+
+def _is_blocking_y(tile_id: int, vy: float) -> bool:
+    if tile_id in (TILE_SOLID, TILE_SPRING, TILE_CRUMBLE):
+        return True
+    if tile_id == TILE_ONEWAY_PLAT and vy > 0:
+        return True
+    return False
+
+
 def rect_overlaps_solid(tiles, x: float, y: float, w: float, h: float) -> bool:
     for ty in _tile_range(y, h):
         for tx in _tile_range(x, w):
@@ -53,28 +67,65 @@ def rect_overlaps_solid(tiles, x: float, y: float, w: float, h: float) -> bool:
     return False
 
 
-def _solid_columns(tiles, x: float, y: float, w: float, h: float):
+def _blocking_columns(tiles, x: float, y: float, w: float, h: float, vx: float):
     cols = set()
     for ty in _tile_range(y, h):
         for tx in _tile_range(x, w):
-            if tile_at(tiles, tx, ty) == TILE_SOLID:
+            if _is_blocking_x(tile_at(tiles, tx, ty)):
                 cols.add(tx)
     return cols
 
 
-def _solid_rows(tiles, x: float, y: float, w: float, h: float):
+def _blocking_rows(tiles, x: float, y: float, w: float, h: float, vy: float):
     rows = set()
     for ty in _tile_range(y, h):
         for tx in _tile_range(x, w):
-            if tile_at(tiles, tx, ty) == TILE_SOLID:
+            if _is_blocking_y(tile_at(tiles, tx, ty), vy):
                 rows.add(ty)
     return rows
 
 
 @dataclass
-class AABBBody:
-    """A simple axis-aligned physics body: position + size + velocity."""
+class CrumbleTracker:
+    active: Dict[Tuple[int, int], int] = field(default_factory=dict)
+    collapsed: Dict[Tuple[int, int], int] = field(default_factory=dict)
 
+    def step_on(self, tx: int, ty: int):
+        key = (tx, ty)
+        if key not in self.active and key not in self.collapsed:
+            self.active[key] = CRUMBLE_DELAY_FRAMES
+
+    def update(self, tiles):
+        remove = []
+        for key, frames in self.active.items():
+            frames -= 1
+            if frames <= 0:
+                tx, ty = key
+                if 0 <= ty < len(tiles) and 0 <= tx < len(tiles[ty]):
+                    tiles[ty][tx] = TILE_EMPTY
+                self.collapsed[key] = CRUMBLE_RESPAWN_FRAMES
+                remove.append(key)
+            else:
+                self.active[key] = frames
+        for k in remove:
+            del self.active[k]
+
+        remove2 = []
+        for key, frames in self.collapsed.items():
+            frames -= 1
+            if frames <= 0:
+                tx, ty = key
+                if 0 <= ty < len(tiles) and 0 <= tx < len(tiles[ty]):
+                    tiles[ty][tx] = TILE_CRUMBLE
+                remove2.append(key)
+            else:
+                self.collapsed[key] = frames
+        for k in remove2:
+            del self.collapsed[k]
+
+
+@dataclass
+class AABBBody:
     x: float
     y: float
     width: float
@@ -91,18 +142,18 @@ def apply_gravity(body: AABBBody) -> None:
     body.vy = min(body.vy + GRAVITY, MAX_FALL_SPEED)
 
 
-def move_and_collide(body: AABBBody, tiles) -> None:
-    """Move body by its velocity, axis by axis, resolving collisions
-    against the given tile grid. Standard separated-axis tile collision,
-    the same approach used by Super Metroid-style platformers."""
+def _tiles_beneath(tiles, body: AABBBody):
+    foot_y = int((body.y + body.height) // TILE_SIZE)
+    result = []
+    for tx in _tile_range(body.x, body.width):
+        result.append((tx, foot_y))
+    return result
 
-    # Horizontal. Resolve against whichever solid column is actually
-    # nearest in the direction of travel (not just the column implied by
-    # the naive new position), since out-of-bounds tiles are empty and
-    # therefore must never be mistaken for the blocker.
+
+def move_and_collide(body: AABBBody, tiles, crumble: CrumbleTracker = None) -> None:
     new_x = body.x + body.vx
     if body.vx != 0:
-        cols = _solid_columns(tiles, new_x, body.y, body.width, body.height)
+        cols = _blocking_columns(tiles, new_x, body.y, body.width, body.height, body.vx)
         if cols:
             if body.vx > 0:
                 new_x = min(cols) * TILE_SIZE - body.width
@@ -111,11 +162,10 @@ def move_and_collide(body: AABBBody, tiles) -> None:
             body.vx = 0
     body.x = new_x
 
-    # Vertical, same approach using solid rows.
     new_y = body.y + body.vy
     body.on_ground = False
     if body.vy != 0:
-        rows = _solid_rows(tiles, body.x, new_y, body.width, body.height)
+        rows = _blocking_rows(tiles, body.x, new_y, body.width, body.height, body.vy)
         if rows:
             if body.vy > 0:
                 new_y = min(rows) * TILE_SIZE - body.height
@@ -125,7 +175,16 @@ def move_and_collide(body: AABBBody, tiles) -> None:
             body.vy = 0
     body.y = new_y
     if body.vy == 0 and not body.on_ground:
-        # Horizontal-only frames still need a ground check so jumping
-        # stays responsive; re-test a hair below the current position.
-        rows = _solid_rows(tiles, body.x, body.y + 0.1, body.width, body.height)
+        rows = _blocking_rows(tiles, body.x, body.y + 0.1, body.width, body.height, 1.0)
         body.on_ground = bool(rows)
+
+    if body.on_ground:
+        foot_tiles = _tiles_beneath(tiles, body)
+        for tx, ty in foot_tiles:
+            t = tile_at(tiles, tx, ty)
+            if t == TILE_SPRING:
+                body.vy = SPRING_BOUNCE_SPEED
+                body.on_ground = False
+                break
+            if t == TILE_CRUMBLE and crumble is not None:
+                crumble.step_on(tx, ty)
