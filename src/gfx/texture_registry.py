@@ -14,8 +14,6 @@ from pathlib import Path
 
 import pygame
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-
 KINDS = ("solid", "oneway", "spring", "crumble")
 
 
@@ -29,7 +27,7 @@ class TextureRegistry:
         self.textures_dir = Path(textures_dir)
         self._palettes = {}
         self._sheets = {}
-        self._cells = {}
+        self._frames = {}
         self._dark = {}
         self._miss = set()
         self._missing_surf = None
@@ -80,8 +78,8 @@ class TextureRegistry:
         self._sheets[key] = img
         return img
 
-    def _cell(self, name: str, pal: dict, kind: str, spec: dict, mask, variant, tick, stage):
-        """(Surface, y_offset, cache_key) for one sheet cell."""
+    def _frame(self, name: str, pal: dict, kind: str, spec: dict, mask, variant, tick, stage):
+        """(Surface, y_offset, cache_key) for one sheet frame."""
         layout = spec.get("layout")
         tile_px = pal.get("tile_px", 48)
         if layout == "autotile16":
@@ -90,13 +88,13 @@ class TextureRegistry:
             overhang = spec.get("overhang_px", 0)
             ch = tile_px + overhang
             key = (name, kind, row, col)
-            hit = self._cells.get(key)
+            hit = self._frames.get(key)
             if hit is not None:
                 return hit
             sheet = self._sheet_image(name, pal, kind)
             surf = sheet.subsurface((col * tile_px, row * ch, tile_px, ch))
             result = (surf, -overhang, key)
-            self._cells[key] = result
+            self._frames[key] = result
             return result
         if layout == "frames":
             frames = max(1, spec.get("frames", 1))
@@ -111,13 +109,13 @@ class TextureRegistry:
             row = 0
             col = variant % max(1, spec.get("variants", 1))
         key = (name, kind, row, col)
-        hit = self._cells.get(key)
+        hit = self._frames.get(key)
         if hit is not None:
             return hit
         sheet = self._sheet_image(name, pal, kind)
         surf = sheet.subsurface((col * tile_px, row * tile_px, tile_px, tile_px))
         result = (surf, 0, key)
-        self._cells[key] = result
+        self._frames[key] = result
         return result
 
     def _darkened(self, surf, cache_key, shade: float):
@@ -149,9 +147,9 @@ class TextureRegistry:
             surf, y_off = self._missing(), 0
         else:
             name, pal, spec = target
-            surf, y_off, cell_key = self._cell(name, pal, kind, spec, mask, variant, tick, stage)
+            surf, y_off, frame_key = self._frame(name, pal, kind, spec, mask, variant, tick, stage)
         if shade < 1.0:
-            surf = self._darkened(surf, cell_key, shade)
+            surf = self._darkened(surf, frame_key, shade)
         return surf, y_off
 
 
@@ -159,9 +157,12 @@ _DEFAULT = None
 
 
 def default_registry() -> TextureRegistry:
-    """Module-level singleton registry built from ROOT/assets."""
+    """Module-level singleton registry for the active project's palettes
+    and textures."""
+    from src.project import active
+
     global _DEFAULT
     if _DEFAULT is None:
-        _DEFAULT = TextureRegistry(ROOT / "assets" / "palettes",
-                                   ROOT / "assets" / "textures")
+        project = active()
+        _DEFAULT = TextureRegistry(project.palettes_dir, project.textures_dir)
     return _DEFAULT

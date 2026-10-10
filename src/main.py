@@ -8,7 +8,7 @@ Tile textures are pre-built into shared sheets under assets/textures
 (see tools/build_textures.py) and loaded at runtime by the texture
 registry; no other image assets are used.
 
-Run with:  python -m src.main
+Run with:  python -m src.main [--project DIR]
 Controls:  left/right arrows or A/D to move, space/up to jump,
            G to toggle the debug grid overlay (default OFF),
            H to toggle the debug info window (default OFF),
@@ -42,21 +42,21 @@ from src.engine.constants import (  # noqa: E402
     TILE_SPRING,
 )
 from src.engine.game_world import PLAYER_H, PLAYER_W, GameWorld, TransitionEvent  # noqa: E402
+from src.engine.physics import CrumbleTracker  # noqa: E402
 from src.engine.room_assembler import AssembledRoom, room_origin_px  # noqa: E402
 from src.engine.world_loader import WorldLoader  # noqa: E402
 from src.debug_window import DebugWindow, debug_lines  # noqa: E402
 from src.gfx.backdrop import get_backdrop_layers, get_fog_gradient  # noqa: E402
 from src.gfx.effects import LightMap, ParticleSystem, get_vignette, glow_sprite  # noqa: E402
 from src.gfx.palette import get_palette  # noqa: E402
-from src.gfx.sprites import get_item_frames, get_player_frame, get_save_station  # noqa: E402
+from src.gfx.sprites import get_item_frames  # noqa: E402
+from src.gfx.sprite_registry import default_sprites  # noqa: E402
 from src.gfx.texture_registry import default_registry  # noqa: E402
+from src.project import Project, active, set_active  # noqa: E402
 
 SCALE = 3
 WINDOW_W = CELL_WIDTH_TILES * TILE_SIZE * SCALE
 WINDOW_H = CELL_HEIGHT_TILES * TILE_SIZE * SCALE
-
-WORLD_INDEX_PATH = ROOT / "src" / "data" / "world_index.json"
-CELLS_DIR = ROOT / "src" / "data" / "cells"
 
 GRID_LINE_COLOR = (255, 255, 255)
 
@@ -360,9 +360,10 @@ class VoxelRenderer:
                 self.item_glows.append((cx, cy + bob / SCALE, 40, get_palette(room.zone)["accent"]))
                 lights.append((cx, cy, 56, get_palette(room.zone)["accent"]))
             elif etype == "save_station":
-                surf, anchor = get_save_station()
-                surface.blit(surf, (sx - surf.get_width() // 2,
-                                    int((room_oy + (ty + 1) * TILE_SIZE) * SCALE - cam_px[1]) - anchor))
+                surf, ax, ay = default_sprites().get_frame("save_station", "idle", tick)
+                bx = int((room_ox + tx * TILE_SIZE + TILE_SIZE / 2) * SCALE - cam_px[0])
+                by = int((room_oy + (ty + 1) * TILE_SIZE) * SCALE - cam_px[1])
+                surface.blit(surf, (bx - ax, by - ay))
                 self.item_glows.append((cx, cy - 6, 50, (120, 220, 255)))
                 lights.append((cx, cy - 6, 60, (120, 220, 255)))
 
@@ -395,7 +396,8 @@ class VoxelRenderer:
         state, frame = (state_override or ("fall", 0))
         if state_override is None:
             state, frame = self.player_anim(world, tick)
-        surf, ax, ay = get_player_frame(state, frame, facing)
+        surf, ax, ay = default_sprites().get_frame("player", state, tick,
+                                                   facing=facing, by_tick=True)
         feet_x = (wx + world.body.width / 2) * SCALE - round(cam_x * SCALE)
         feet_y = (wy + world.body.height) * SCALE - round(cam_y * SCALE)
         surface.blit(surf, (int(feet_x - ax), int(feet_y - ay)))
@@ -421,14 +423,56 @@ class VoxelRenderer:
                                (int(gx * SCALE - gr), int(gy * SCALE - gr)))
         screen.blit(self.additive, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
 
+    # -- static scene core ---------------------------------------------------
+
+    def _render_scene(self, screen, room, cam_x, cam_y, tick, lights,
+                      crumble_active, crumble_collapsed, entities=True,
+                      backdrop=True):
+        """Backdrop + tiles + entities; the non-character core shared by
+        render_frame and render_static. The additive pass, light map,
+        vignette, player, particles, title card and minimap stay in the
+        callers so render_frame's exact draw order is preserved."""
+        if backdrop:
+            self.draw_backdrop(screen, room.zone, cam_x, cam_y)
+        self.draw_room_tiles(screen, room, cam_x, cam_y, tick,
+                             crumble_active, crumble_collapsed, lights)
+        if entities:
+            self.draw_room_entities(screen, room, cam_x, cam_y, tick, lights)
+
+    def render_static(self, screen, room, cam_x, cam_y, tick=0,
+                      lighting=True, entities=True, backdrop=True,
+                      ambient=None):
+        """Static render of one AssembledRoom with no GameWorld: backdrop,
+        tiles (no crumble activity), entities, additive glows, and light
+        map + vignette when `lighting`. No player, particles, title card
+        or minimap. Used by the maker's editor renders (render.py)."""
+        cam_x, cam_y = _round_cam(cam_x, cam_y)
+        self._ambient_zone = room.zone
+        self.item_glows = []
+        lights = []
+        self._render_scene(screen, room, cam_x, cam_y, tick, lights, {}, {},
+                           entities=entities, backdrop=backdrop)
+        self._draw_additive(screen, tick)
+        if lighting:
+            # _apply_light_map hardcodes a 180px player light at
+            # self.player_light (z unused): for a static render place it
+            # at the view centre so the scene stays readable without a
+            # GameWorld, and let callers opt into a brighter ambient.
+            self.player_light = (cam_x + (WINDOW_W / SCALE) / 2,
+                                 cam_y + (WINDOW_H / SCALE) / 2, 0.0)
+            self._apply_light_map(screen, room.zone, cam_x, cam_y, lights,
+                                  tick, ambient)
+            screen.blit(get_vignette(), (0, 0))
+
     # -- light map -----------------------------------------------------------
 
-    def _apply_light_map(self, screen, zone, cam_x, cam_y, lights, tick):
-        ambient = get_palette(zone)["ambient"]
+    def _apply_light_map(self, screen, zone, cam_x, cam_y, lights, tick,
+                         ambient=None):
+        ambient = get_palette(zone)["ambient"] if ambient is None else ambient
         self.light_map.begin(ambient)
         # Red zone embers: slow flickering warm dots scattered in the room
         if zone == "Red Brinstar":
-            rng = random.Random(("embers", int(cam_x // 480), int(cam_y // 480)))
+            rng = random.Random(f"embers:{int(cam_x // 480)}:{int(cam_y // 480)}")
             for _ in range(6):
                 ex = cam_x + rng.uniform(0, WINDOW_W / SCALE)
                 ey = cam_y + rng.uniform(0, WINDOW_H / SCALE)
@@ -584,15 +628,9 @@ class VoxelRenderer:
 
         lights = []
 
-        # 1. fog gradient + parallax backdrop layers
-        self.draw_backdrop(screen, room.zone, cam_x, cam_y)
-
-        # 2. tiles of the room (with crumble state)
-        self.draw_room_tiles(screen, room, cam_x, cam_y, tick,
-                             world.crumble.active, world.crumble.collapsed, lights)
-
-        # 3. entities
-        self.draw_room_entities(screen, room, cam_x, cam_y, tick, lights)
+        # 1-3. fog gradient + parallax backdrop, tiles, entities; 6. additive
+        self._render_scene(screen, room, cam_x, cam_y, tick, lights,
+                           world.crumble.active, world.crumble.collapsed)
 
         # 4. player
         self.draw_player(screen, world, cam_x, cam_y, tick, facing)
@@ -655,7 +693,8 @@ class VoxelRenderer:
 
         # player on a jump/fall frame at the interpolated world position
         state = "fall"
-        surf, ax, ay = get_player_frame(state, 0, facing)
+        surf, ax, ay = default_sprites().get_frame("player", state, tick,
+                                                   facing=facing)
         feet_x = (player_wx + PLAYER_W / 2) * SCALE - round(cam_x * SCALE)
         feet_y = (player_wy + PLAYER_H) * SCALE - round(cam_y * SCALE)
         screen.blit(surf, (int(feet_x - ax), int(feet_y - ay)))
@@ -741,15 +780,48 @@ class RoomTransition:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+def main(argv=None) -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Metroidvania demo runner")
+    parser.add_argument("--project", metavar="DIR",
+                        help="project folder to run (default: the engine "
+                             "root's project.json / METROIDVANIA_PROJECT)")
+    parser.add_argument("--start-cell", metavar="CX,CY",
+                        help="spawn in cell CX,CY instead of the start cell")
+    parser.add_argument("--start-tile", metavar="TX,TY",
+                        help="spawn at tile TX,TY inside --start-cell "
+                             "(player feet bottom-aligned on the tile)")
+    args = parser.parse_args(argv)
+    if args.project:
+        set_active(Project.load(args.project))
+    if args.start_tile and not args.start_cell:
+        parser.error("--start-tile requires --start-cell")
+
     pygame.init()
-    pygame.display.set_caption("Metroidvania Voxel Demo")
+    pygame.display.set_caption(active().title)
     screen = pygame.display.set_mode((WINDOW_W, WINDOW_H))
     clock = pygame.time.Clock()
     renderer = VoxelRenderer()
 
-    loader = WorldLoader(WORLD_INDEX_PATH, CELLS_DIR, cache_size=32)
+    loader = WorldLoader(active().world_index_path, active().cells_dir,
+                         cache_size=32)
     world = GameWorld(loader)
+    if args.start_cell:
+        cx, cy = (int(v) for v in args.start_cell.split(","))
+        room = world.loader.assemble_from((cx, cy))
+        world.current_room = room
+        world.crumble = CrumbleTracker()
+        if args.start_tile:
+            tx, ty = (int(v) for v in args.start_tile.split(","))
+        else:
+            tx, ty = world._spawn_tile(room)
+        if not (0 <= tx < CELL_WIDTH_TILES and 0 <= ty < CELL_HEIGHT_TILES):
+            parser.error(f"--start-tile {tx},{ty} is outside the 16x10 cell")
+        tx_room = tx + (cx - room.origin[0]) * CELL_WIDTH_TILES
+        ty_room = ty + (cy - room.origin[1]) * CELL_HEIGHT_TILES
+        world.body.x = float(tx_room * TILE_SIZE)
+        world.body.y = float((ty_room + 1) * TILE_SIZE - PLAYER_H)
     transition = None
     facing = 1
     show_grid = False

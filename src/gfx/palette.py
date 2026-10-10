@@ -12,6 +12,8 @@ Everything is authored as plain tuples; the caller (voxel renderers) does
 the shading/quantization quantization via ``ramp_color`` / ``dither_pick``.
 """
 
+from src.project import load_zones
+
 RAMPS = {
     "Blue Brinstar": {
         "rock": [
@@ -173,9 +175,42 @@ DEFAULT_PALETTE = {
     "ambient": (205, 205, 215),
 }
 
+# Zone palettes from the active project's zones.json override RAMPS; the
+# converted dicts are cached per zone and dropped when the zones data
+# object changes (see get_palette).
+_CONVERTED = {}
+_ZONES_ID = None
+
+
+def _as_tuples(value):
+    """Recursively turn lists (from JSON) into tuples."""
+    if isinstance(value, list):
+        return tuple(_as_tuples(v) for v in value)
+    return value
+
+
+def _convert_zone(pal: dict) -> dict:
+    return {key: _as_tuples(val) for key, val in pal.items()}
+
+
 def get_palette(zone: str) -> dict:
-    """Per-zone palette dict; unknown zones fall back to DEFAULT_PALETTE."""
-    return RAMPS.get(zone, DEFAULT_PALETTE)
+    """Per-zone palette dict; zones data from the active project wins,
+    then RAMPS, then DEFAULT_PALETTE for unknown/unnamed zones."""
+    global _ZONES_ID
+    zones = load_zones()
+    zid = id(zones)
+    if _ZONES_ID != zid:
+        _CONVERTED.clear()
+        _ZONES_ID = zid
+    cached = _CONVERTED.get(zone)
+    if cached is not None:
+        return cached
+    if zone in zones:
+        pal = _convert_zone(zones[zone])
+    else:
+        pal = RAMPS.get(zone, DEFAULT_PALETTE)
+    _CONVERTED[zone] = pal
+    return pal
 
 
 def ramp_color(ramp, t: float) -> tuple:

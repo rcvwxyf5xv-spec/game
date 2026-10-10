@@ -1,4 +1,5 @@
 .venv/
+.maker_tmp/
 __pycache__/
 *.pyc
 *.pyo

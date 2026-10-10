@@ -18,9 +18,10 @@ sys.path.insert(0, str(ROOT))
 from src.engine.constants import MOVE_SPEED  # noqa: E402
 from src.engine.game_world import GameWorld  # noqa: E402
 from src.engine.world_loader import WorldLoader  # noqa: E402
+from src.project import active  # noqa: E402
 
-WORLD_INDEX_PATH = ROOT / "src" / "data" / "world_index.json"
-CELLS_DIR = ROOT / "src" / "data" / "cells"
+WORLD_INDEX_PATH = active().world_index_path
+CELLS_DIR = active().cells_dir
 
 failures = []
 

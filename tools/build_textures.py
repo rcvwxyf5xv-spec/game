@@ -8,12 +8,14 @@ Sheets are deterministic build outputs and should be committed; the game
 at runtime loads them through src.gfx.texture_registry.
 
 Run: SDL_VIDEODRIVER=dummy .venv/bin/python -m tools.build_textures
-     [palette_name ...]   (no names = all palettes in assets/palettes)
+     [--project DIR] [palette_name ...]
+     (no names = all palettes in the active project)
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -30,14 +32,12 @@ from src.gfx.tiles import (  # noqa: E402
     get_rock_tile,
     get_spring_frames,
 )
-
-PALETTES_DIR = ROOT / "assets" / "palettes"
-TEXTURES_DIR = ROOT / "assets" / "textures"
+from src.project import Project, active, set_active  # noqa: E402
 
 
-def _fit_cell(surf):
+def _fit_frame(surf):
     """Crop a rendered surface to its bottom 48 rows (the tile footprint)
-    so it fits a 48x48 sheet cell; rock renderers return taller surfaces
+    so it fits a 48x48 sheet frame; rock renderers return taller surfaces
     whose raised caps live above the footprint."""
     w, h = surf.get_size()
     if h <= 48:
@@ -48,14 +48,14 @@ def _fit_cell(surf):
 def build_solid(pal, colors, name, spec):
     variants = spec["variants"]
     overhang = spec["overhang_px"]
-    cell_w = pal["tile_px"]
-    cell_h = pal["tile_px"] + overhang
-    sheet = pygame.Surface((variants * cell_w, 16 * cell_h), pygame.SRCALPHA)
+    frame_w = pal["tile_px"]
+    frame_h = pal["tile_px"] + overhang
+    sheet = pygame.Surface((variants * frame_w, 16 * frame_h), pygame.SRCALPHA)
     sheet.fill((0, 0, 0, 0))
     for mask in range(16):
         for variant in range(variants):
             surf, y_off = get_rock_tile(colors, name, mask, variant, 0)
-            sheet.blit(surf, (variant * cell_w, mask * cell_h + overhang + y_off))
+            sheet.blit(surf, (variant * frame_w, mask * frame_h + overhang + y_off))
     return sheet
 
 
@@ -75,7 +75,7 @@ def build_spring(pal, colors, name, spec):
     sheet = pygame.Surface((len(frames) * tile_px, tile_px), pygame.SRCALPHA)
     sheet.fill((0, 0, 0, 0))
     for i, surf in enumerate(frames):
-        sheet.blit(_fit_cell(surf), (i * tile_px, 0))
+        sheet.blit(_fit_frame(surf), (i * tile_px, 0))
     return sheet
 
 
@@ -85,7 +85,7 @@ def build_crumble(pal, colors, name, spec):
     sheet = pygame.Surface((stages * tile_px, tile_px), pygame.SRCALPHA)
     sheet.fill((0, 0, 0, 0))
     for stage in range(stages):
-        sheet.blit(_fit_cell(get_crumble_tile(colors, name, stage)), (stage * tile_px, 0))
+        sheet.blit(_fit_frame(get_crumble_tile(colors, name, stage)), (stage * tile_px, 0))
     return sheet
 
 
@@ -97,32 +97,59 @@ _BUILDERS = {
 }
 
 
-def build_palette(name: str):
-    path = PALETTES_DIR / f"{name}.json"
+def build_palette(name: str, palettes_dir: Path, textures_dir: Path) -> list:
+    """Render one palette's texture sheets into textures_dir; returns the
+    list of written paths."""
+    palettes_dir = Path(palettes_dir)
+    textures_dir = Path(textures_dir)
+    path = palettes_dir / f"{name}.json"
+    written = []
     if not path.exists():
-        print(f"warning: no palette JSON at {path.relative_to(ROOT)}")
-        return
+        print(f"warning: no palette JSON at {os.path.relpath(path, ROOT)}")
+        return written
     pal = json.loads(path.read_text())
     generator = pal.get("build", {}).get("generator", "")
     if generator != "voxel_rock":
         print(f"warning: unknown generator {generator!r} for {name}, skipping")
-        return
+        return written
     colors = pal["build"]["colors"]
-    out_dir = TEXTURES_DIR / name
+    locked = pal.get("build", {}).get("locked", [])
+    out_dir = textures_dir / name
     out_dir.mkdir(parents=True, exist_ok=True)
     for kind, spec in pal["textures"].items():
+        if kind in locked:
+            print(f"  skipping locked {kind} (imported texture kept as-is)")
+            continue
         sheet = _BUILDERS[kind](pal, colors, name, spec)
         rel_out = out_dir / spec["file"]
         pygame.image.save(sheet, str(rel_out))
-        print(f"  wrote {rel_out.relative_to(ROOT)} {sheet.get_width()}x{sheet.get_height()}")
+        written.append(rel_out)
+        print(f"  wrote {os.path.relpath(rel_out, ROOT)} "
+              f"{sheet.get_width()}x{sheet.get_height()}")
+    return written
 
 
-def main(argv):
+def main(argv=None):
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Build palette texture sheets for a project")
+    parser.add_argument("--project", metavar="DIR",
+                        help="project folder to build textures for "
+                             "(default: active project)")
+    parser.add_argument("names", nargs="*",
+                        help="palette names (default: all palettes)")
+    args = parser.parse_args(argv)
+    if args.project:
+        set_active(Project.load(args.project))
+
     pygame.init()
-    names = argv[1:] or sorted(p.name[:-5] for p in PALETTES_DIR.glob("*.json"))
+    project = active()
+    names = args.names or sorted(p.name[:-5] for p in
+                                 project.palettes_dir.glob("*.json"))
     for name in names:
-        build_palette(name)
+        build_palette(name, project.palettes_dir, project.textures_dir)
 
 
 if __name__ == "__main__":
-    main(sys.argv)
+    main()

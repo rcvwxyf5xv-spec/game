@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "name": "brinstar",
+  "title": "Metroidvania Voxel Demo",
+  "paths": {
+    "world_index": "src/data/world_index.json",
+    "cells_dir": "src/data/cells",
+    "palettes_dir": "assets/palettes",
+    "textures_dir": "assets/textures",
+    "sprite_src_dir": "assets/sprite_src",
+    "sprites_dir": "assets/sprites",
+    "zones": "assets/zones.json"
+  }
+}

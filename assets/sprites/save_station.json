@@ -1,0 +1,16 @@
+{
+ "name": "save_station",
+ "frame_w": 78,
+ "frame_h": 66,
+ "anchor_px": [
+  40,
+  63
+ ],
+ "animations": {
+  "idle": {
+   "start": 0,
+   "count": 4,
+   "frame_ticks": 8
+  }
+ }
+}

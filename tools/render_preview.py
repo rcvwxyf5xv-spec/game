@@ -5,16 +5,20 @@ Constructs the real WorldLoader/GameWorld, reuses src.main's frame
 pipeline (render_frame / render_transition), and writes PNG screenshots
 to /Users/ben/Documents/game/screenshots/:
   <zone_slug>.png      one per zone (Blue/Green/Pink/Red/Kraid rooms)
+  springs_room.png     room cell (2,3) (spring pads)
+  oneway_room.png      room cell (-1,3) (one-way platforms)
+  save_room.png        room cell (5,1) (save station)
   transition.png       mid-door-transition frame
   upper_room.png       player on the floor of room (0,-1)
   shaft.png            player on a floor in room (4,2)'s Main Shaft
-  sprites.png          contact sheet of procedural sprites + textures
+  sprites.png          contact sheet of sprites + spring/oneway textures
+  player_closeup.png   2x close-up of every player frame
 
 Prints the lazy art-build time and the average frame time over 120
 rendered frames in the Blue start room.
 
 Run: SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \\
-     .venv/bin/python -m tools.render_preview
+     .venv/bin/python -m tools.render_preview [--project DIR]
 """
 
 from __future__ import annotations
@@ -32,18 +36,17 @@ from src.engine.constants import MOVE_SPEED, TILE_SIZE  # noqa: E402
 from src.engine.game_world import PLAYER_H, GameWorld  # noqa: E402
 from src.engine.physics import CrumbleTracker  # noqa: E402
 from src.engine.world_loader import WorldLoader  # noqa: E402
-from src.gfx.sprites import get_item_frames, get_player_frame, get_save_station  # noqa: E402
+from src.gfx.sprites import get_item_frames  # noqa: E402
+from src.gfx.sprite_registry import default_sprites  # noqa: E402
 from src.gfx.texture_registry import TextureRegistry  # noqa: E402
 from src.main import (  # noqa: E402
-    CELLS_DIR,
-    ROOT,
     RoomTransition,
     VoxelRenderer,
     WINDOW_H,
     WINDOW_W,
-    WORLD_INDEX_PATH,
     compute_camera,
 )
+from src.project import Project, active, set_active  # noqa: E402
 
 ZONES = [
     ("Blue Brinstar", (0, 0), "blue"),
@@ -175,78 +178,105 @@ def capture_shaft(screen, renderer, world, loader, out_dir):
     print(f"  saved shaft.png")
 
 
-def capture_sprites(out_dir, registry):
-    """Contact sheet of procedural sprites + palette textures (a few solid
-    masks, oneway, spring frames, crumble stages for several palettes) on
-    a dark gray background."""
-    cell = 64
+def capture_sprites(out_dir, registry, sprites):
+    """Contact sheet of data-driven sprites + palette textures: every player
+    frame (both facings) at the game scale, the save station frames, the
+    spring 3 frames and oneway 4 variants for blue/green/red Brinstar, plus
+    one item frame, on a dark gray background."""
+    slot = 64
     cols = 16
-    frames_per_palette = 3
-    palettes = ["blue_brinstar", "green_brinstar", "kraids_lair"]
-    solid_masks = (0, 5, 10, 15)
-    n_player = 20  # 2 facings x (2 idle + 6 run + 1 jump + 1 fall)
-    n_items = 12
-    n_save = 1
-    n_tex = len(palettes) * (len(solid_masks) + 1 + frames_per_palette + 4)
-    total = n_player + n_items + n_save + n_tex
+    n_player = 2 * (2 + 6 + 1 + 1)
+    n_save = 4
+    n_spring = 3 * 3
+    n_oneway = 3 * 4
+    total = n_player + n_save + n_spring + n_oneway + 1
     rows = (total + cols - 1) // cols
-    sheet = pygame.Surface((cols * cell, rows * cell))
+    sheet = pygame.Surface((cols * slot, rows * slot))
     sheet.fill((38, 40, 46))
 
     def blit_centered(surf, x, y):
-        sheet.blit(surf, (x + (cell - surf.get_width()) // 2,
-                          y + (cell - surf.get_height()) // 2))
+        sheet.blit(surf, (x + (slot - surf.get_width()) // 2,
+                          y + (slot - surf.get_height()) // 2))
+
+    def blit_anchored(surf, ax, ay, ci):
+        cx = ci % cols
+        cy = ci // cols
+        by = cy * slot + slot - 12
+        sheet.blit(surf, (cx * slot + slot // 2 - ax, by - ay))
 
     ci = 0
-    # player frames (left then right facing)
+    # player frames, both facings, anchored at the feet base line
     for facing in (-1, 1):
-        for state, n in (("idle", 2), ("run", 6), ("jump", 1), ("fall", 1)):
+        for anim, n, ticks in (("idle", 2, 30), ("run", 6, 5),
+                               ("jump", 1, 1), ("fall", 1, 1)):
             for i in range(n):
-                surf, ax, ay = get_player_frame(state, i, facing)
-                cx = ci % cols
-                cy = ci // cols
-                sheet.blit(surf, (cx * cell + cell // 2 - ax, cy * cell + cell - 12 - ay))
+                surf, ax, ay = sprites.get_frame("player", anim, i * ticks,
+                                                 facing=facing, by_tick=True)
+                blit_anchored(surf, ax, ay, ci)
                 ci += 1
-    # item rotation frames
-    for surf in get_item_frames("item_varia_suit"):
-        blit_centered(surf, (ci % cols) * cell, (ci // cols) * cell)
+    # save station frames
+    for i in range(4):
+        surf, ax, ay = sprites.get_frame("save_station", "idle", i * 8)
+        blit_anchored(surf, ax, ay, ci)
         ci += 1
-    # save station
-    surf, anchor = get_save_station()
-    cx = ci % cols
-    cy = ci // cols
-    sheet.blit(surf, (cx * cell + cell // 2 - surf.get_width() // 2,
-                      (cy + 1) * cell - 6 - anchor))
-    ci += 1
-    # palette textures: solid masks, oneway, spring frames, crumble stages
-    for palette in palettes:
-        for mask in solid_masks:
-            surf, _ = registry.get(palette, "solid", mask=mask, variant=0)
-            blit_centered(surf, (ci % cols) * cell, (ci // cols) * cell)
-            ci += 1
-        surf, _ = registry.get(palette, "oneway", variant=0)
-        blit_centered(surf, (ci % cols) * cell, (ci // cols) * cell)
-        ci += 1
-        for frame in range(frames_per_palette):
+    # spring frames + oneway variants for three palettes
+    for palette in ("blue_brinstar", "green_brinstar", "red_brinstar"):
+        for frame in range(3):
             surf, _ = registry.get(palette, "spring", tick=frame * 6)
-            blit_centered(surf, (ci % cols) * cell, (ci // cols) * cell)
+            blit_centered(surf, (ci % cols) * slot, (ci // cols) * slot)
             ci += 1
-        for stage in range(4):
-            surf, _ = registry.get(palette, "crumble", stage=stage)
-            blit_centered(surf, (ci % cols) * cell, (ci // cols) * cell)
+        for variant in range(4):
+            surf, _ = registry.get(palette, "oneway", variant=variant)
+            blit_centered(surf, (ci % cols) * slot, (ci // cols) * slot)
             ci += 1
+    # one item frame
+    blit_centered(get_item_frames("item_varia_suit")[0],
+                  (ci % cols) * slot, (ci // cols) * slot)
+    ci += 1
     pygame.image.save(sheet, str(out_dir / "sprites.png"))
     print(f"  saved sprites.png ({sheet.get_width()}x{sheet.get_height()})")
 
 
-def main():
+def capture_player_closeup(out_dir, sprites):
+    """2x-scaled contact strip of every player frame (both facings) for
+    close inspection of the pixel art."""
+    slot = 56
+    strip = pygame.Surface((slot * 20, slot))
+    strip.fill((38, 40, 46))
+    ci = 0
+    for facing in (-1, 1):
+        for anim, n, ticks in (("idle", 2, 30), ("run", 6, 5),
+                               ("jump", 1, 1), ("fall", 1, 1)):
+            for i in range(n):
+                surf, ax, ay = sprites.get_frame("player", anim, i * ticks,
+                                                 facing=facing, by_tick=True)
+                by = slot - 12
+                strip.blit(surf, (ci * slot + slot // 2 - ax, by - ay))
+                ci += 1
+    closeup = pygame.transform.scale(strip, (strip.get_width() * 2,
+                                             strip.get_height() * 2))
+    pygame.image.save(closeup, str(out_dir / "player_closeup.png"))
+    print(f"  saved player_closeup.png ({closeup.get_width()}x{closeup.get_height()})")
+
+
+def main(argv=None):
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Headless preview renderer")
+    parser.add_argument("--project", metavar="DIR",
+                        help="project folder to render (default: active project)")
+    args = parser.parse_args(argv)
+    if args.project:
+        set_active(Project.load(args.project))
+
     pygame.init()
     pygame.display.set_mode((WINDOW_W, WINDOW_H))
     screen = pygame.Surface((WINDOW_W, WINDOW_H))
     out_dir = ROOT / "screenshots"
     out_dir.mkdir(exist_ok=True)
 
-    loader = WorldLoader(WORLD_INDEX_PATH, CELLS_DIR, cache_size=32)
+    loader = WorldLoader(active().world_index_path, active().cells_dir,
+                         cache_size=32)
     world = GameWorld(loader)
     renderer = VoxelRenderer()
 
@@ -292,8 +322,16 @@ def main():
     renderer = VoxelRenderer()
     capture_shaft(screen, renderer, world, loader, out_dir)
 
+    print("feature room screenshots:")
+    for coord, slug in ((2, 3), "springs_room"), ((-1, 3), "oneway_room"), ((5, 1), "save_room"):
+        world = GameWorld(loader)
+        renderer = VoxelRenderer()
+        capture_zone_shot(screen, renderer, world, loader, coord, slug, out_dir)
+
     print("sprite contact sheet:")
-    capture_sprites(out_dir, renderer.registry)
+    sprites = default_sprites()
+    capture_sprites(out_dir, renderer.registry, sprites)
+    capture_player_closeup(out_dir, sprites)
 
     print(f"lazy art build time on first render: {ART_BUILD_TIME * 1000:.1f} ms")
     print(f"average frame time (120 frames, Blue start): {AVG_FRAME_MS:.2f} ms")

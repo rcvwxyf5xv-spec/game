@@ -24,7 +24,8 @@ import zlib
 import pygame
 
 from src.gfx.palette import dither_pick
-from src.gfx.voxel import VoxelModel, render_model, render_relief
+from src.gfx.pixelart import render_pixel_art
+from src.gfx.voxel import render_relief
 
 TILE_VOXELS = 16
 VOXEL_PX = 3
@@ -142,60 +143,103 @@ def get_rock_tile(colors, cache_key, mask, variant, depth_level):
 # ---------------------------------------------------------------------------
 
 
-def _render_fitted(model, voxel_px=3):
-    """Render a voxel model and center its silhouette horizontally with the
-    top edge flush to the tile's top row; returns a 48x48 SRCALPHA."""
-    surf, _ = render_model(model, voxel_px)
-    if surf.get_width() < 1 or surf.get_height() < 1:
-        return pygame.Surface((TILE_PX, TILE_PX), pygame.SRCALPHA)
-    mask = pygame.mask.from_surface(surf)
-    rects = mask.get_bounding_rects()
-    if not rects:
-        return pygame.Surface((TILE_PX, TILE_PX), pygame.SRCALPHA)
-    rect = rects[0]
+def _tile_frame(rows, colors, heights=None, edge_pad=0):
+    """Render a 16x16 art grid and crop any raised overhang so the tile
+    footprint fills 48x48 (bottom-aligned), returning an SRCALPHA surface.
+
+    edge_pad > 0 prepends/extends the edge-column pattern by one column on
+    each side so the tile's outer columns get no boundary bevel and tiles
+    join seamlessly horizontally."""
+    if edge_pad > 0:
+        rows = [row[-1] + row + row[0] for row in rows]
+    surf = render_pixel_art(rows, colors, heights, VOXEL_PX)
+    w, h = surf.get_size()
     out = pygame.Surface((TILE_PX, TILE_PX), pygame.SRCALPHA)
-    out.blit(surf, (TILE_PX // 2 - rect.centerx, -rect.top))
+    out.blit(surf, (0, 0), area=(edge_pad * VOXEL_PX, h - TILE_PX,
+                                 min(w, TILE_PX), TILE_PX))
+    return out
+
+
+_SPRING_METAL = {
+    "M": (150, 160, 182),
+    "m": (92, 98, 118),
+    "d": (52, 56, 70),
+}
+
+
+def _spring_coil_rows(phase):
+    """9 rows x 8 cols of the coil band (rows 3-11) as a zig-zag braid;
+    `phase` shifts the pattern so the highlight travels down the spring."""
+    band = []
+    for r in range(9):
+        seg = (r + phase) % 8
+        cells = ["c"] * 8
+        if seg < 4:
+            lo = 4 - seg
+            hi = 7 - seg
+        else:
+            k = seg - 4
+            lo = k
+            hi = k + 3
+        for x in range(max(0, lo), min(8, hi + 1)):
+            cells[x] = "C"
+        band.append("".join(cells))
+    return band
+
+
+def _spring_grids():
+    """16x16 grids for the 3 spring frames (pad fixed at rows 0-2; the
+    coil highlight and pad glow animate). Returns (rows, colors) pairs."""
+    pad_tops = (
+        (150, 255, 200),
+        (222, 255, 246),
+        (134, 240, 178),
+    )
+    out = []
+    for f in range(3):
+        coil = _spring_coil_rows((0, 3, 5)[f])
+        rows = []
+        for r in range(16):
+            if r == 0:
+                row = "PPPPPPPPPPPPPPPP"
+            elif r == 1:
+                row = "pppppppppppppppp"
+            elif r == 2:
+                row = "qqqqqqqqqqqqqqqq"
+            elif 3 <= r <= 11:
+                row = "dMdd" + coil[r - 3] + "ddMd"
+            elif r == 12:
+                row = "rRrRRRRrRRRRrRRR"
+            elif 13 <= r <= 14:
+                row = "mmmmmmmmmmmmmmmm"
+            else:
+                row = "dddddddddddddddd"
+            rows.append(row)
+        colors = dict(_SPRING_METAL)
+        colors["P"] = pad_tops[f]
+        colors["p"] = (60, 235, 120) if f != 1 else (98, 246, 154)
+        colors["q"] = (30, 150, 80)
+        colors["C"] = (185, 198, 226)
+        colors["c"] = (118, 128, 152)
+        colors["R"] = (96, 104, 124)
+        colors["r"] = (200, 210, 230)
+        out.append((rows, colors))
     return out
 
 
 def get_spring_frames(colors, cache_key):
-    """3 frames of a voxel bounce pad (metal base + coil + glowing pad):
-    rest -> compressed -> released, animating a bounce. The pad's top sits
-    at the tile's top edge; surfaces 48x48."""
+    """3 frames of a side-view bounce block: bright pad on the tile's top
+    rows 0-2 (always at the very top), zig-zag coil in the middle, dark
+    metal base plate with rivets. Frames animate the coil highlight and
+    pad glow, not the pad position. Surfaces 48x48."""
     key = ("spring", cache_key)
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
-    metal_dark = (52, 56, 70)
-    metal = (92, 98, 118)
-    metal_light = (150, 160, 182)
-    coil_dark = (120, 128, 150)
-    pad = (60, 235, 120)
-    pad_light = (150, 255, 200)
-
-    # pad top z for the three bounce phases
-    tops = (9, 6, 12)
     frames = []
-    for i, top_z in enumerate(tops):
-        model = VoxelModel()
-        # chunky metal base
-        model.add_box(1, 0, 0, 12, 11, 3, metal_dark)
-        model.add_box(1, 1, 3, 12, 9, 1, metal)
-        # base rivets
-        for rx in (2, 11):
-            model.add_voxel(rx, 3, 3, metal_light)
-        # coil: zig-zag stacked rings between base and pad
-        coil_z_s = 4
-        coil_z_e = top_z - 2
-        for z in range(coil_z_s, coil_z_e + 1):
-            r = 5 if (z % 2 == 0 and (coil_z_e - coil_z_s) > 0) else 4
-            model.add_cylinder(7, 5, z, r, 1, coil_dark if (z - coil_z_s) % 2 == 0 else metal)
-        # glowing pad
-        model.add_box(2, 0, top_z - 2, 10, 10, 1, pad)
-        model.add_box(2, 0, top_z - 1, 10, 10, 1, pad_light)
-        for rx in (2, 9):
-            model.add_voxel(rx, 2, top_z, (200, 255, 240))
-        frames.append(_render_fitted(model))
+    for rows, frame_colors in _spring_grids():
+        heights = {"r": 2}
+        frames.append(_tile_frame(rows, frame_colors, heights))
     _CACHE[key] = frames
     return frames
 
@@ -204,33 +248,61 @@ def get_spring_frames(colors, cache_key):
 # One-way platforms
 # ---------------------------------------------------------------------------
 
+_ONEWAY_SEAMS = {
+    0: (4, 11),
+    1: (2, 8, 13),
+    2: (6,),
+    3: (3, 10),
+}
+
+_ONEWAY_RIVETS = ((0, 2), (1, 14), (1, 2), (0, 14))
+
 
 def get_oneway_tile(colors, cache_key, variant):
-    """Thin voxel metal grate/bridge plank occupying the top ~5 voxels of
-    the tile, with rivets and support posts; rest transparent."""
+    """Thin side-view ledge plank occupying the tile's top rows 0-4 with
+    a dark underside, seams and small edge brackets/rivets below (rows
+    5-7). The plank spans columns 0-15 so adjacent tiles join into a
+    continuous ledge. Only the seam/rivet placement varies per variant;
+    rest of the tile transparent. Surface 48x48."""
     key = ("oneway", cache_key, variant)
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
-    rng = random.Random(_seed("oneway", cache_key, variant))
-    metal = (168, 132, 64)
-    metal_dark = (104, 82, 42)
-    metal_light = (214, 188, 104)
-    plank_h = 6  # bottom of the plank slab
+    rock = colors["rock"]
+    cap = colors["cap"]
+    seam_cols = _ONEWAY_SEAMS[variant % len(_ONEWAY_SEAMS)]
+    rv = _ONEWAY_RIVETS[variant % len(_ONEWAY_RIVETS)]
 
-    model = VoxelModel()
-    # plank slab: 12 wide x 11 deep, occupying the top ~5 voxels of the
-    # tile (voxel z 10..14 out of a 16-voxel-tall visual column)
-    model.add_box(2, 0, 14, 12, 9, 2, metal)
-    model.add_box(2, 0, 12, 12, 9, 2, metal_light)
-    model.add_box(2, 0, plank_h, 12, 9, 2, metal_dark)
-    # rivets along the top
-    for rx in (3, 6, 9, 12):
-        model.add_voxel(rx, 3, 15, metal_light)
-    # support posts dropping to the bottom of the slab
-    model.add_box(3, 3, plank_h - 5, 2, 2, 5, metal_dark)
-    model.add_box(9, 3, plank_h - 5, 2, 2, 5, metal_dark)
-    surf = _render_fitted(model)
+    rows = []
+    # plank top surface + body (rows 0-4), seams break the plank uniformly
+    rows.append("T" * 16)
+    for y in (1, 2, 3):
+        row = []
+        for x in range(16):
+            row.append("E" if x in seam_cols else ("p" if y != 2 else "m"))
+        rows.append("".join(row))
+    rows.append("U" * 16)
+    # edge brackets (rows 5-7) at columns 0-2 and 13-15
+    bracket = ("dRd", "ddd", ".dd") if rv[0] == 0 else ("d.d", "ddd", ".dd")
+    for y in range(3):
+        rows.append(bracket[y] + "." * 10 + bracket[y][::-1])
+    # everything below is air
+    for _ in range(8):
+        rows.append("." * 16)
+
+    shade = {
+        "T": cap[6],
+        "p": rock[5],
+        "m": rock[4],
+        "E": rock[2],
+        "U": cap[0],
+        "d": rock[2],
+        "R": rock[6],
+    }
+    colors_map = {ch: shade[ch] for ch in set("".join(rows)) if ch != "."}
+    # edge_pad=1 continues the edge columns so the plank tiles seamlessly
+    # horizontally (no boundary bevels at the tile edges)
+    surf = _tile_frame(rows, colors_map, edge_pad=1)
     _CACHE[key] = surf
     return surf
 
