@@ -1,7 +1,7 @@
 """
 Build-time texture sheet generator: renders the palette texture sheets
-(assets/textures/<palette>/solid.png, oneway.png, spring.png,
-crumble.png) from each palette's JSON in assets/palettes/ using the
+(<project>/textures/<palette>/solid.png, oneway.png, spring.png,
+crumble.png) from each palette's JSON in <project>/palettes/ using the
 procedural voxel renderers in src.gfx.tiles.
 
 Sheets are deterministic build outputs and should be committed; the game

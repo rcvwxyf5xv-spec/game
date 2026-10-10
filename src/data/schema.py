@@ -4,7 +4,7 @@ Data-only description of the game world.
 This module intentionally contains NO pygame, NO physics, NO rendering,
 and NO loading/caching/flood-fill logic. It is the "database" layer:
 plain dataclasses that can be constructed from JSON (see
-src/data/cells/*.json and world_index.json), produced by a level editor,
+<project>/world/cells/*.json and world_index.json), produced by a level editor,
 or generated procedurally by a future module.
 
 World addressing:
@@ -167,7 +167,7 @@ class WorldIndex:
     """
 
     # Maps every authored (x, y) cell to the filename (relative to
-    # src/data/cells/) that contains its definition. A cell coordinate
+    # <project>/world/cells/) that contains its definition. A cell coordinate
     # with no entry simply does not exist (e.g. solid rock / void).
     cell_files: Dict[GridCoord, str]
     start_cell: GridCoord

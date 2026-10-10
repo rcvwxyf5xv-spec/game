@@ -3,9 +3,10 @@ Entry point / demo harness - late-90s / early-2000s PC voxel-art look.
 
 Everything on screen is generated procedurally from the
 src/gfx package: per-zone palettes, voxel rock relief tiles, voxel
-sprites, parallax cave backdrops, a light map, particles and a minimap.
-Tile textures are pre-built into shared sheets under assets/textures
-(see tools/build_textures.py) and loaded at runtime by the texture
+sprites, parallax cave backdrops, particles and a minimap. Lighting is
+authored only (light / ambient_light entities placed in the editor).
+Tile textures are pre-built into shared sheets under textures/
+of the active project (see tools/build_textures.py) and loaded at runtime by the texture
 registry; no other image assets are used.
 
 Run with:  python -m src.main [--project DIR]
@@ -18,7 +19,6 @@ Controls:  left/right arrows or A/D to move, space/up to jump,
 from __future__ import annotations
 
 import math
-import random
 import sys
 from pathlib import Path
 
@@ -47,7 +47,7 @@ from src.engine.room_assembler import AssembledRoom, room_origin_px  # noqa: E40
 from src.engine.world_loader import WorldLoader  # noqa: E402
 from src.debug_window import DebugWindow, debug_lines  # noqa: E402
 from src.gfx.backdrop import get_backdrop_layers, get_fog_gradient  # noqa: E402
-from src.gfx.effects import LightMap, ParticleSystem, get_vignette, glow_sprite  # noqa: E402
+from src.gfx.effects import LightMap, ParticleSystem  # noqa: E402
 from src.gfx.palette import get_palette  # noqa: E402
 from src.gfx.sprites import get_item_frames  # noqa: E402
 from src.gfx.sprite_registry import default_sprites  # noqa: E402
@@ -187,6 +187,18 @@ def variant_for(tx: int, ty: int, ox: int, oy: int) -> int:
 # ---------------------------------------------------------------------------
 
 
+_INVISIBLE_ENTITIES = ("spawn_point", "light", "ambient_light")
+
+
+def _rgb(value, default):
+    """An authored [r, g, b] prop as a tuple, or `default` when invalid."""
+    try:
+        r, g, b = (max(0, min(255, int(c))) for c in value)
+        return (r, g, b)
+    except (TypeError, ValueError):
+        return tuple(default)
+
+
 class VoxelRenderer:
     """Reusable presentation state + frame pipeline. Created once per
     process and shared by main() and tools/render_preview.py."""
@@ -195,7 +207,6 @@ class VoxelRenderer:
         self.light_map = LightMap()
         self.registry = default_registry()
         # reused full-screen surfaces (never reallocated per frame)
-        self.additive = pygame.Surface((WINDOW_W, WINDOW_H), pygame.SRCALPHA)
         self.particles = ParticleSystem()
         self.depth_cache = {}  # id(room) -> (room, depth_map)
         self.prev_collapsed = set()
@@ -207,10 +218,8 @@ class VoxelRenderer:
         self.zone_font = None
         self.hud_font = None
         self.saved_rooms = set()
-        self.item_glows = []
         self._was_on_ground = False
         self._ambient_zone = "Blue Brinstar"
-        self.player_light = (0.0, 0.0, 0.0)
         # reused per-frame overlays (never reallocated)
         self._title_overlay = pygame.Surface((WINDOW_W, WINDOW_H), pygame.SRCALPHA)
 
@@ -272,7 +281,7 @@ class VoxelRenderer:
     # -- tiles ---------------------------------------------------------------
 
     def draw_room_tiles(self, surface, room, cam_x, cam_y, tick,
-                        crumble_active, crumble_collapsed, lights):
+                        crumble_active, crumble_collapsed):
         room_ox, room_oy = room_origin_px(room)
         depth = self.depth_for(room)
         cam_px = (round(cam_x * SCALE), round(cam_y * SCALE))
@@ -309,8 +318,6 @@ class VoxelRenderer:
                 elif tile == TILE_SPRING:
                     surf, y_off = self.registry.get(palette, kind, tick=tick)
                     surface.blit(surf, (px, py + y_off))
-                    lights.append((room_ox + tx * TILE_SIZE + 8,
-                                   room_oy + ty * TILE_SIZE + 4, 60, (80, 255, 150)))
                 elif tile == TILE_ONEWAY_PLAT:
                     variant = variant_for(tx, ty, room.origin[0], room.origin[1])
                     surf, y_off = self.registry.get(palette, kind, variant=variant)
@@ -318,9 +325,6 @@ class VoxelRenderer:
                 elif tile == TILE_CRUMBLE:
                     self._draw_crumble(surface, palette, tx, ty, px, py, tick,
                                        crumble_active)
-
-        # spring positions also glow near the pad top
-        return
 
     def _draw_crumble(self, surface, palette, tx, ty, px, py, tick, crumble_active):
         frames_left = crumble_active.get((tx, ty))
@@ -336,12 +340,12 @@ class VoxelRenderer:
 
     # -- entities ------------------------------------------------------------
 
-    def draw_room_entities(self, surface, room, cam_x, cam_y, tick, lights):
+    def draw_room_entities(self, surface, room, cam_x, cam_y, tick):
         room_ox, room_oy = room_origin_px(room)
         cam_px = (round(cam_x * SCALE), round(cam_y * SCALE))
         for entity in room.entities:
             etype = entity.get("type", "")
-            if etype == "spawn_point":
+            if etype in _INVISIBLE_ENTITIES:
                 continue
             tx = entity.get("tile_x", 0)
             ty = entity.get("tile_y", 0)
@@ -356,16 +360,11 @@ class VoxelRenderer:
                 surf = frames[(tick // 4) % len(frames)]
                 bob = int(round(math.sin(tick * 0.08 + tx * 0.7) * 3.0)) - 6
                 surface.blit(surf, (sx - surf.get_width() // 2, sy - surf.get_height() // 2 + bob))
-                # glow in the additive pass comes from the light map + glows
-                self.item_glows.append((cx, cy + bob / SCALE, 40, get_palette(room.zone)["accent"]))
-                lights.append((cx, cy, 56, get_palette(room.zone)["accent"]))
             elif etype == "save_station":
                 surf, ax, ay = default_sprites().get_frame("save_station", "idle", tick)
                 bx = int((room_ox + tx * TILE_SIZE + TILE_SIZE / 2) * SCALE - cam_px[0])
                 by = int((room_oy + (ty + 1) * TILE_SIZE) * SCALE - cam_px[1])
                 surface.blit(surf, (bx - ax, by - ay))
-                self.item_glows.append((cx, cy - 6, 50, (120, 220, 255)))
-                lights.append((cx, cy - 6, 60, (120, 220, 255)))
 
     # -- player --------------------------------------------------------------
 
@@ -401,10 +400,8 @@ class VoxelRenderer:
         feet_x = (wx + world.body.width / 2) * SCALE - round(cam_x * SCALE)
         feet_y = (wy + world.body.height) * SCALE - round(cam_y * SCALE)
         surface.blit(surf, (int(feet_x - ax), int(feet_y - ay)))
-        # warm player light
-        self.player_light = (wx + world.body.width / 2, wy + world.body.height / 2, 180)
 
-    # -- particles / lights --------------------------------------------------
+    # -- particles ----------------------------------------------------------
 
     def draw_particles(self, surface, cam_x, cam_y, tick):
         self.particles.spawn_motes(self._ambient_zone, (cam_x, cam_y,
@@ -412,80 +409,70 @@ class VoxelRenderer:
         self.particles.update(1.0)
         self.particles.draw(surface, cam_x, cam_y, tick)
 
-    # -- additive pass -------------------------------------------------------
-
-    def _draw_additive(self, screen, tick):
-        """Bloom glows for items/save stations, drawn into the reused
-        additive overlay, then blitted with BLEND_RGB_ADD."""
-        self.additive.fill((0, 0, 0, 0))
-        for gx, gy, gr, gcolor in self.item_glows:
-            self.additive.blit(glow_sprite(gr, gcolor),
-                               (int(gx * SCALE - gr), int(gy * SCALE - gr)))
-        screen.blit(self.additive, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
-
     # -- static scene core ---------------------------------------------------
 
-    def _render_scene(self, screen, room, cam_x, cam_y, tick, lights,
+    def _render_scene(self, screen, room, cam_x, cam_y, tick,
                       crumble_active, crumble_collapsed, entities=True,
                       backdrop=True):
         """Backdrop + tiles + entities; the non-character core shared by
-        render_frame and render_static. The additive pass, light map,
-        vignette, player, particles, title card and minimap stay in the
-        callers so render_frame's exact draw order is preserved."""
+        render_frame and render_static. Authored lighting, player,
+        particles, title card and minimap stay in the callers so
+        render_frame's exact draw order is preserved."""
         if backdrop:
             self.draw_backdrop(screen, room.zone, cam_x, cam_y)
         self.draw_room_tiles(screen, room, cam_x, cam_y, tick,
-                             crumble_active, crumble_collapsed, lights)
+                             crumble_active, crumble_collapsed)
         if entities:
-            self.draw_room_entities(screen, room, cam_x, cam_y, tick, lights)
+            self.draw_room_entities(screen, room, cam_x, cam_y, tick)
 
     def render_static(self, screen, room, cam_x, cam_y, tick=0,
-                      lighting=True, entities=True, backdrop=True,
-                      ambient=None):
+                      lighting=True, entities=True, backdrop=True):
         """Static render of one AssembledRoom with no GameWorld: backdrop,
-        tiles (no crumble activity), entities, additive glows, and light
-        map + vignette when `lighting`. No player, particles, title card
-        or minimap. Used by the maker's editor renders (render.py)."""
+        tiles (no crumble activity), entities, and the room's authored
+        lighting when `lighting`. No player, particles, title card or
+        minimap. Used by the maker's editor renders (render.py)."""
         cam_x, cam_y = _round_cam(cam_x, cam_y)
         self._ambient_zone = room.zone
-        self.item_glows = []
-        lights = []
-        self._render_scene(screen, room, cam_x, cam_y, tick, lights, {}, {},
+        self._render_scene(screen, room, cam_x, cam_y, tick, {}, {},
                            entities=entities, backdrop=backdrop)
-        self._draw_additive(screen, tick)
         if lighting:
-            # _apply_light_map hardcodes a 180px player light at
-            # self.player_light (z unused): for a static render place it
-            # at the view centre so the scene stays readable without a
-            # GameWorld, and let callers opt into a brighter ambient.
-            self.player_light = (cam_x + (WINDOW_W / SCALE) / 2,
-                                 cam_y + (WINDOW_H / SCALE) / 2, 0.0)
-            self._apply_light_map(screen, room.zone, cam_x, cam_y, lights,
-                                  tick, ambient)
-            screen.blit(get_vignette(), (0, 0))
+            self.apply_room_lighting(screen, room, cam_x, cam_y, tick)
 
-    # -- light map -----------------------------------------------------------
+    # -- authored lighting ---------------------------------------------------
 
-    def _apply_light_map(self, screen, zone, cam_x, cam_y, lights, tick,
-                         ambient=None):
-        ambient = get_palette(zone)["ambient"] if ambient is None else ambient
+    def apply_room_lighting(self, screen, room, cam_x, cam_y, tick):
+        """Lighting is authored data, never automatic. A room is flat and
+        fully lit unless it holds an `ambient_light` entity, which darkens
+        the whole screen to its `color` (default: the zone's `ambient`).
+        Only then do `light` entities add glow: props `radius` (game px,
+        default 48), `color` [r,g,b] (default [255,220,160]) and optional
+        `flicker` (bool)."""
+        ambient = None
+        for entity in room.entities:
+            if entity.get("type") == "ambient_light":
+                ambient = _rgb(entity.get("color"),
+                               get_palette(room.zone)["ambient"])
+                break
+        if ambient is None:
+            return
         self.light_map.begin(ambient)
-        # Red zone embers: slow flickering warm dots scattered in the room
-        if zone == "Red Brinstar":
-            rng = random.Random(f"embers:{int(cam_x // 480)}:{int(cam_y // 480)}")
-            for _ in range(6):
-                ex = cam_x + rng.uniform(0, WINDOW_W / SCALE)
-                ey = cam_y + rng.uniform(0, WINDOW_H / SCALE)
-                flick = 0.5 + 0.5 * math.sin(tick * 0.1 + rng.uniform(0, 6))
-                lights.append((ex, ey, 40 + 30 * flick, (255, 120, 60)))
-        for (lx, ly, radius, color) in lights:
-            sx = (lx - cam_x) * SCALE
-            sy = (ly - cam_y) * SCALE
-            self.light_map.add_light(sx, sy, radius, color)
-        # player light last so it dominates
-        pl = self.player_light
-        self.light_map.add_light((pl[0] - cam_x) * SCALE, (pl[1] - cam_y) * SCALE,
-                                 180, (255, 200, 140))
+        room_ox, room_oy = room_origin_px(room)
+        for entity in room.entities:
+            if entity.get("type") != "light":
+                continue
+            tx = entity.get("tile_x", 0)
+            ty = entity.get("tile_y", 0)
+            lx = room_ox + tx * TILE_SIZE + TILE_SIZE / 2
+            ly = room_oy + ty * TILE_SIZE + TILE_SIZE / 2
+            try:
+                radius = float(entity.get("radius", 48))
+            except (TypeError, ValueError):
+                radius = 48.0
+            if entity.get("flicker"):
+                radius *= 0.9 + 0.1 * math.sin(tick * 0.15 + tx * 1.7 + ty)
+            self.light_map.add_light((lx - cam_x) * SCALE, (ly - cam_y) * SCALE,
+                                     radius * SCALE,
+                                     _rgb(entity.get("color"), (255, 220, 160)))
         self.light_map.apply(screen)
 
     # -- title card ----------------------------------------------------------
@@ -621,15 +608,12 @@ class VoxelRenderer:
         room = world.current_room
         cam_x, cam_y = _round_cam(cam_x, cam_y)
         self._ambient_zone = room.zone
-        self.item_glows = []
         room_ox, room_oy = room_origin_px(room)
 
         self.on_room_change(world)
 
-        lights = []
-
-        # 1-3. fog gradient + parallax backdrop, tiles, entities; 6. additive
-        self._render_scene(screen, room, cam_x, cam_y, tick, lights,
+        # 1-3. fog gradient + parallax backdrop, tiles, entities
+        self._render_scene(screen, room, cam_x, cam_y, tick,
                            world.crumble.active, world.crumble.collapsed)
 
         # 4. player
@@ -646,14 +630,8 @@ class VoxelRenderer:
                                         room.zone)
         self.prev_collapsed = collapsed_now
 
-        # 6. bloom glows (additive)
-        self._draw_additive(screen, tick)
-
-        # 7. light map (MULT)
-        self._apply_light_map(screen, room.zone, cam_x, cam_y, lights, tick)
-
-        # 9. vignette
-        screen.blit(get_vignette(), (0, 0))
+        # 6. authored lighting (only rooms with an ambient_light entity)
+        self.apply_room_lighting(screen, room, cam_x, cam_y, tick)
 
         # 10. zone title card
         self.update_title(tick)
@@ -675,11 +653,9 @@ class VoxelRenderer:
                           show_grid=False, loader=None):
         """Draw one frame of a RoomTransition: backdrop of the destination
         room, tiles/entities of both rooms, the player on a jump/fall
-        frame, and a light map following the interpolated player."""
+        frame, and the destination room's authored lighting."""
         cam_x, cam_y = _round_cam(cam_x, cam_y)
         self._ambient_zone = to_room.zone
-        self.item_glows = []
-        lights = []
 
         screen.fill((0, 0, 0))
         self.draw_backdrop(screen, to_room.zone, cam_x, cam_y)
@@ -687,9 +663,9 @@ class VoxelRenderer:
         empty_crumble = {}
         for room in (from_room, to_room):
             self.draw_room_tiles(screen, room, cam_x, cam_y, tick,
-                                 empty_crumble, empty_crumble, lights)
+                                 empty_crumble, empty_crumble)
         for room in (from_room, to_room):
-            self.draw_room_entities(screen, room, cam_x, cam_y, tick, lights)
+            self.draw_room_entities(screen, room, cam_x, cam_y, tick)
 
         # player on a jump/fall frame at the interpolated world position
         state = "fall"
@@ -698,12 +674,9 @@ class VoxelRenderer:
         feet_x = (player_wx + PLAYER_W / 2) * SCALE - round(cam_x * SCALE)
         feet_y = (player_wy + PLAYER_H) * SCALE - round(cam_y * SCALE)
         screen.blit(surf, (int(feet_x - ax), int(feet_y - ay)))
-        self.player_light = (player_wx + PLAYER_W / 2, player_wy + PLAYER_H / 2, 0.0)
 
         self.draw_particles(screen, cam_x, cam_y, tick)
-        self._draw_additive(screen, tick)
-        self._apply_light_map(screen, to_room.zone, cam_x, cam_y, lights, tick)
-        screen.blit(get_vignette(), (0, 0))
+        self.apply_room_lighting(screen, to_room, cam_x, cam_y, tick)
         self.update_title(tick)
         self.draw_title(screen, get_palette(to_room.zone)["accent"])
         if show_grid:
@@ -785,8 +758,10 @@ def main(argv=None) -> None:
 
     parser = argparse.ArgumentParser(description="Metroidvania demo runner")
     parser.add_argument("--project", metavar="DIR",
-                        help="project folder to run (default: the engine "
-                             "root's project.json / METROIDVANIA_PROJECT)")
+                        help="project folder to run (default: "
+                             "METROIDVANIA_PROJECT env, the export root's "
+                             "project.json when running an exported game, "
+                             "or the first project in projects/)")
     parser.add_argument("--start-cell", metavar="CX,CY",
                         help="spawn in cell CX,CY instead of the start cell")
     parser.add_argument("--start-tile", metavar="TX,TY",

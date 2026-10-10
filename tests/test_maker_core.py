@@ -1,9 +1,9 @@
 """Headless checks for the maker core (ProjectModel / ops / undo-redo /
 validate).
 
-Runs against a copy of the in-repo demo project under .maker_tmp (never
-touches the real src/data or assets). Each section resets the copy so it
-sees pristine demo data.
+Runs against a wholesale copy of tests/fixtures/demo_project under
+.maker_tmp (never touches engine data). Each section resets the copy so
+it sees pristine demo data.
 
 Run with:  .venv/bin/python -m tests.test_maker_core
 """
@@ -24,20 +24,11 @@ from maker.core import ops, validate  # noqa: E402
 from maker.core.errors import OpError  # noqa: E402
 from maker.core.model import ProjectModel  # noqa: E402
 from src.data.serialize import cell_from_dict, save_cell  # noqa: E402
+from src.project import DEFAULT_LAYOUT  # noqa: E402
 
 MAKER_TMP = ROOT / ".maker_tmp"
 PROJ_COPY = MAKER_TMP / "proj_copy"
 SCRATCH = MAKER_TMP / "scratch"
-
-_COPY_PATHS = {
-    "world_index": "world/world_index.json",
-    "cells_dir": "world/cells",
-    "palettes_dir": "palettes",
-    "textures_dir": "textures",
-    "sprite_src_dir": "sprite_src",
-    "sprites_dir": "sprites",
-    "zones": "zones.json",
-}
 
 failures: list = []
 
@@ -55,20 +46,7 @@ def reset_copy() -> ProjectModel:
     if PROJ_COPY.exists():
         shutil.rmtree(PROJ_COPY)
     SCRATCH.mkdir(parents=True, exist_ok=True)
-    manifest = json.loads((ROOT / "project.json").read_text())
-    manifest["paths"] = dict(_COPY_PATHS)
-    PROJ_COPY.mkdir(parents=True)
-    (PROJ_COPY / "project.json").write_text(
-        json.dumps(manifest, indent=2) + "\n")
-    (PROJ_COPY / "world").mkdir(parents=True)
-    shutil.copy(ROOT / "src/data/world_index.json",
-                PROJ_COPY / "world/world_index.json")
-    shutil.copytree(ROOT / "src/data/cells", PROJ_COPY / "world/cells")
-    shutil.copytree(ROOT / "assets/palettes", PROJ_COPY / "palettes")
-    shutil.copy(ROOT / "assets/zones.json", PROJ_COPY / "zones.json")
-    shutil.copytree(ROOT / "assets/sprite_src", PROJ_COPY / "sprite_src")
-    shutil.copytree(ROOT / "assets/sprites", PROJ_COPY / "sprites")
-    shutil.copytree(ROOT / "assets/textures", PROJ_COPY / "textures")
+    shutil.copytree(ROOT / "tests/fixtures/demo_project", PROJ_COPY)
     return ProjectModel.open(PROJ_COPY)
 
 
@@ -117,14 +95,14 @@ def test_open_demo() -> None:
     check("still not dirty after no-op save", not m.is_dirty)
 
     print("\n== 1b. byte-identical cell round trip ==")
-    index = json.loads((PROJ_COPY / _COPY_PATHS["world_index"])
+    index = json.loads((PROJ_COPY / DEFAULT_LAYOUT["world_index"])
                        .read_text())
     tmp_out = SCRATCH / "roundtrip.json"
     mismatches = []
     for key, fname in index["cells"].items():
         x_str, y_str = key.split(",")
         coord = (int(x_str), int(y_str))
-        original = (PROJ_COPY / _COPY_PATHS["cells_dir"] / fname) \
+        original = (PROJ_COPY / DEFAULT_LAYOUT["cells_dir"] / fname) \
             .read_bytes()
         cell = m.cell(coord)
         save_cell(cell_from_dict(cell), tmp_out)
@@ -333,6 +311,61 @@ def test_ops_and_errors() -> None:
     check("delete_zone missing raises", _raises(
         OpError, ops.delete_zone, m, "Test Zone 2"))
 
+    # -- zone default palette --
+    ops.set_zone_palette(m, "Blue Brinstar", "green_brinstar")
+    check("set_zone_palette sets",
+          m.zones["Blue Brinstar"].get("default_palette") == "green_brinstar")
+    ops.set_zone_palette(m, "Blue Brinstar", None)
+    check("set_zone_palette clears",
+          "default_palette" not in m.zones["Blue Brinstar"])
+    check("set_zone_palette unknown palette raises", _raises(
+        OpError, ops.set_zone_palette, m, "Blue Brinstar", "nope"))
+    check("set_zone_palette unknown zone raises", _raises(
+        OpError, ops.set_zone_palette, m, "No Such Zone",
+        "green_brinstar"))
+    ops.set_zone_palette(m, "Blue Brinstar", "blue_brinstar")
+    nc = free_coord(m)
+    ops.new_cell(m, nc, zone="Blue Brinstar", template="walled")
+    check("new_cell uses zone default palette",
+          m.cell(nc)["tiles"][0][0]["palette"] == "blue_brinstar"
+          and m.cell(nc)["tiles"][5][5].get("palette") is None)
+    ops.set_zone_palette(m, "Blue Brinstar", "green_brinstar")
+    before_nc = copy.deepcopy(m.cell(nc))
+    r = ops.apply_zone_palette(m, "Blue Brinstar")
+    check("apply_zone_palette re-skins zone tiles",
+          r["cells"] >= 1 and r["tiles"] >= 1
+          and m.cell(nc)["tiles"][0][0]["palette"] == "green_brinstar")
+    m.undo()
+    check("apply_zone_palette undo restores", m.cell(nc) == before_nc)
+    check("apply_zone_palette without default raises", _raises(
+        OpError, ops.apply_zone_palette, m, "Green Brinstar"))
+    ops.set_zone_palette(m, "Green Brinstar", "blue_brinstar")
+    ops.rename_palette(m, "blue_brinstar", "blue_b2")
+    check("rename_palette updates zone default",
+          m.zones["Green Brinstar"]["default_palette"] == "blue_b2"
+          and m.zones["Blue Brinstar"].get("default_palette")
+          == "green_brinstar")
+    ops.set_zone_palette(m, "Red Brinstar", "default")
+    check("delete_palette used only by a zone raises", _raises(
+        OpError, ops.delete_palette, m, "default"))
+    ops.delete_palette(m, "default", replace_with="blue_b2")
+    check("delete_palette clears the zone key",
+          "default" not in m.palettes
+          and "default_palette" not in m.zones["Red Brinstar"])
+    ops.rename_palette(m, "blue_b2", "blue_brinstar")  # restore for later checks
+    check("set_zone bad default_palette raises", _raises(
+        OpError, ops.set_zone, m, "Bad Zone", {"default_palette": "ghost"}))
+    # set_zone validates the palette name, so craft the bad state directly
+    with m.transaction("craft orphan zone"):
+        m._touch_zones()
+        m._zones["Orphan Zone"] = dict(m.zones["Pink Brinstar"],
+                                       default_palette="ghost_pal")
+    missing = [i for i in validate.validate(m)
+               if i.code == "zone_palette_missing"]
+    check("validate warns on missing zone palette",
+          len(missing) == 1 and missing[0].severity == "warning"
+          and missing[0].extra.get("zone") == "Orphan Zone")
+
     # -- palettes --
     ops.create_palette(m, "test_pal", base="blue_brinstar")
     check("create_palette", "test_pal" in m.palettes
@@ -385,10 +418,12 @@ def test_ops_and_errors() -> None:
         OpError, ops.set_manifest_value, m, "format", 1))
     check("set_manifest_value bad path raises", _raises(
         OpError, ops.set_manifest_value, m, "paths", {"bogus": "x"}))
+    ops.set_manifest_value(m, "paths",
+                           {"cells_dir": DEFAULT_LAYOUT["cells_dir"]})
     ops.set_manifest_value(m, "paths", {"zones": "z2.json"})
     check("set_manifest_value paths merged", m.manifest["paths"][
         "zones"] == "z2.json" and m.manifest["paths"]["cells_dir"]
-        == _COPY_PATHS["cells_dir"])
+        == DEFAULT_LAYOUT["cells_dir"])
 
     # -- undo still works after everything above --
     check("ops left model consistent (no edge errors)",
@@ -542,7 +577,7 @@ def test_save_reopen() -> None:
     check("clean after save", not m.is_dirty)
     check("second save writes nothing", m.save() == [])
 
-    cells_dir = PROJ_COPY / _COPY_PATHS["cells_dir"]
+    cells_dir = PROJ_COPY / DEFAULT_LAYOUT["cells_dir"]
     check("moved cell file renamed",
           (cells_dir / f"{move_cell[0]}_{move_cell[1]}.json").exists()
           is False
@@ -552,7 +587,7 @@ def test_save_reopen() -> None:
           not (cells_dir / f"{victim[0]}_{victim[1]}.json").exists())
     check("new cell file written",
           (cells_dir / f"{newc[0]}_{newc[1]}.json").exists())
-    index = json.loads((PROJ_COPY / _COPY_PATHS["world_index"])
+    index = json.loads((PROJ_COPY / DEFAULT_LAYOUT["world_index"])
                        .read_text())
     check("world index updated", index["start_cell"] == [
         move_cell[0] + 1, move_cell[1]]
@@ -561,21 +596,21 @@ def test_save_reopen() -> None:
           and f"{victim[0]},{victim[1]}" not in index["cells"]
           and f"{newc[0]},{newc[1]}" in index["cells"])
     check("palette written",
-          (PROJ_COPY / _COPY_PATHS["palettes_dir"] / "test_pal.json")
+          (PROJ_COPY / DEFAULT_LAYOUT["palettes_dir"] / "test_pal.json")
           .exists())
     check("renamed palette file + texture dir",
-          (PROJ_COPY / _COPY_PATHS["palettes_dir"] / "red_b2.json")
+          (PROJ_COPY / DEFAULT_LAYOUT["palettes_dir"] / "red_b2.json")
           .exists()
-          and not (PROJ_COPY / _COPY_PATHS["palettes_dir"]
+          and not (PROJ_COPY / DEFAULT_LAYOUT["palettes_dir"]
                    / "red_brinstar.json").exists()
-          and (PROJ_COPY / _COPY_PATHS["textures_dir"] / "red_b2")
+          and (PROJ_COPY / DEFAULT_LAYOUT["textures_dir"] / "red_b2")
           .exists()
-          and not (PROJ_COPY / _COPY_PATHS["textures_dir"]
+          and not (PROJ_COPY / DEFAULT_LAYOUT["textures_dir"]
                    / "red_brinstar").exists())
     check("zones written", json.loads(
-        (PROJ_COPY / _COPY_PATHS["zones"]).read_text()
+        (PROJ_COPY / DEFAULT_LAYOUT["zones"]).read_text()
     )["Blue Brinstar"]["ambient"] == [1, 2, 3])
-    check("sprite written", (PROJ_COPY / _COPY_PATHS["sprite_src_dir"]
+    check("sprite written", (PROJ_COPY / DEFAULT_LAYOUT["sprite_src_dir"]
                              / "test_spr.json").exists())
     check("manifest written", json.loads(
         (PROJ_COPY / "project.json").read_text())["title"]

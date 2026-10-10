@@ -1,9 +1,13 @@
 .venv/
 .maker_tmp/
+.maker_state.json
 __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
 .DS_Store
+projects/
 *.png
 !assets/**/*.png
+!templates/**/*.png
+!tests/fixtures/**/*.png

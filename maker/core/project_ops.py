@@ -26,7 +26,12 @@ from maker.core import validate as validator
 from maker.core.errors import OpError
 from maker.core.ops import DEFAULT_ENTITY_TYPES
 from src.engine.constants import CELL_HEIGHT_TILES, CELL_WIDTH_TILES
-from src.project import DEFAULT_LAYOUT, ENGINE_ROOT, Project
+from src.project import (  # noqa: E402
+    DEFAULT_LAYOUT,
+    ENGINE_ROOT,
+    STARTER_TEMPLATE,
+    Project,
+)
 
 EXPORT_MARKER = ".metroidvania_export"
 _NAME_RE = re.compile(r"^[a-z0-9_]+$")
@@ -49,12 +54,19 @@ def create_project(dest, name, title=None, template="starter",
 
     `dest` must not exist or be an empty directory. Templates:
       * "starter": one walled cell at (0,0) with a spawn_point, palette
-        "default", zone "Start", background [18,18,28]; palettes,
-        textures, sprite sources, built sprites and zones are copied from
-        `source` (default: the engine-root demo project) and a "Start"
-        zone (from src.gfx DEFAULT_PALETTE) is added to zones.json;
+        "default", zone "Start", background [18,18,28]. With no `source`,
+        the template already contains that world and only neutral assets,
+        so the world and assets are copied from STARTER_TEMPLATE
+        (templates/starter) as-is and no Start zone is added (the
+        template's zones.json already has "Start" with
+        "default_palette": "default"). With an explicit `source`,
+        palettes, textures, sprite sources, built sprites and zones are
+        copied from `source` and a "Start" zone (from src.gfx
+        DEFAULT_PALETTE, plus "default_palette": "default") is added to
+        zones.json;
       * "copy": the source project's world and all assets, re-laid out
-        into the default layout.
+        into the default layout; requires `source` (an OpError is raised
+        when it is missing).
     """
     _require_name(name)
     if template not in ("starter", "copy"):
@@ -65,15 +77,22 @@ def create_project(dest, name, title=None, template="starter",
         if not dest.is_dir() or any(dest.iterdir()):
             raise OpError(
                 f"destination {dest} must not exist or be an empty directory")
-    src = Project.load(Path(source) if source is not None else ENGINE_ROOT)
+    if source is None:
+        if template == "copy":
+            raise OpError("template 'copy' needs a source project")
+        src = Project.load(STARTER_TEMPLATE)
+    else:
+        src = Project.load(Path(source))
     dest.mkdir(parents=True, exist_ok=True)
     _write_project_json(dest, name, title)
     if template == "copy":
         _copy_world(src, dest)
+    elif source is None:
+        _copy_world(src, dest)
     else:
         _write_starter_world(dest)
     _copy_assets(src, dest)
-    if template == "starter":
+    if template == "starter" and source is not None:
         _add_start_zone(dest)
     return dest
 
@@ -128,6 +147,7 @@ def _add_start_zone(dest: Path) -> None:
     zones = (json.loads(zones_path.read_text())
              if zones_path.exists() else {})
     zones["Start"] = {k: lists(v) for k, v in DEFAULT_PALETTE.items()}
+    zones["Start"]["default_palette"] = "default"
     zones_path.write_text(json.dumps(zones, indent=2) + "\n")
 
 

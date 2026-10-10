@@ -3,8 +3,10 @@
     python -m maker [--project DIR] [--size 1440x900]
     python -m maker --screenshot out.png   # render one frame headlessly
 
-Without --project the active project is used (METROIDVANIA_PROJECT or
-the project.json next to the engine).
+Without --project the project to open is resolved at startup (see
+maker.state.resolve_startup_project): METROIDVANIA_PROJECT env, the last
+opened project, the first project in projects/, or a fresh
+projects/my_game built from the starter template.
 """
 
 from __future__ import annotations
@@ -37,8 +39,8 @@ def main(argv=None) -> int:
     except ValueError:
         ap.error("--size must look like 1440x900")
     try:
-        from src.project import active
-        model = ProjectModel.open(args.project or active().root)
+        from maker.state import resolve_startup_project
+        model = ProjectModel.open(resolve_startup_project(explicit=args.project))
     except (OpError, OSError, ValueError) as exc:
         print(f"cannot open project: {exc}", file=sys.stderr)
         return 1

@@ -1,8 +1,9 @@
 """
-Presentation effects: the zone light map (ambient + additive light
-sprites multiplied over the scene), cached glow sprites, a small world-
-space particle system (ambient motes, landing dust, crumble debris,
-spring sparks) and a cached vignette.
+Presentation effects: the light map used ONLY for authored lighting
+(an ambient_light entity's colour + additive light-entity glows,
+multiplied over the scene), cached glow sprites, and a small world-space
+particle system (ambient motes, landing dust, crumble debris, spring
+sparks).
 """
 
 from __future__ import annotations
@@ -35,8 +36,9 @@ def glow_sprite(radius, color):
             d = math.hypot(x - cx, y - cy) / float(r)
             if d >= 1.0:
                 continue
-            a = int((1.0 - d) ** 2 * 255)
-            surf.set_at((x, y), (color[0], color[1], color[2], a))
+            f = 1.0 - d * d
+            surf.set_at((x, y), (int(color[0] * f), int(color[1] * f),
+                                 int(color[2] * f), int(f * 255)))
     CALC[key] = surf
     return surf
 
@@ -182,25 +184,3 @@ class ParticleSystem:
             else:
                 col = (base[0], base[1], base[2], alpha)
                 pygame.draw.circle(screen, col, (int(sx), int(sy)), size)
-
-
-_VIGNETTE = None
-
-
-def get_vignette():
-    """Cached 768x480 SRCALPHA darkening at the screen edges."""
-    global _VIGNETTE
-    if _VIGNETTE is not None:
-        return _VIGNETTE
-    surf = pygame.Surface((WINDOW_W, WINDOW_H), pygame.SRCALPHA)
-    cx, cy = WINDOW_W / 2.0, WINDOW_H / 2.0
-    rmax = math.hypot(cx, cy)
-    for y in range(WINDOW_H):
-        for x in range(WINDOW_W):
-            d = math.hypot(x - cx, y - cy) / rmax
-            if d < 0.55:
-                continue
-            a = int((d - 0.55) / 0.45 * 120)
-            surf.set_at((x, y), (0, 0, 0, min(160, a)))
-    _VIGNETTE = surf
-    return surf

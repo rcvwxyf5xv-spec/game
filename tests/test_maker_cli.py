@@ -215,6 +215,48 @@ def test_palettes_textures(proj: Path) -> None:
           set(pal.get("build", {}).get("locked", [])) >= {"oneway", "solid"})
 
 
+def test_zone_palette(proj: Path) -> None:
+    code, out = cli("zone", "palette", "Start", "mossy", project=proj)
+    check("zone palette sets the default",
+          code == 0 and json.loads((proj / "zones.json").read_text())
+          ["Start"].get("default_palette") == "mossy")
+
+    code, out = cli("cell", "new", "2,0", "--zone", "Start", project=proj)
+    cell = json.loads((proj / "world/cells/2_0.json").read_text())
+    solid = [t for row in cell["tiles"] for t in row
+             if t.get("kind") != "empty"]
+    check("new cell uses zone default palette",
+          code == 0 and solid and all(t.get("palette") == "mossy"
+                                      for t in solid))
+
+    code, out = cli("zone", "apply-palette", "Start", "--only-unset",
+                    "--palette", "default", project=proj)
+    check("apply-palette --only-unset ok", code == 0 and out["ok"])
+
+    code, out = cli("zone", "apply-palette", "Start", project=proj)
+    check("apply-palette uses the zone default",
+          code == 0 and out["result"]["cells"] >= 1
+          and out["result"]["tiles"] >= 1)
+    cell = json.loads((proj / "world/cells/0_0.json").read_text())
+    solid = [t for row in cell["tiles"] for t in row
+             if t.get("kind") != "empty"]
+    check("apply-palette re-skinned the zone's tiles",
+          solid and all(t.get("palette") == "mossy" for t in solid))
+
+    code, out = cli("zone", "palette", "Start", "none", project=proj)
+    check("zone palette none clears",
+          code == 0 and "default_palette" not in json.loads(
+              (proj / "zones.json").read_text())["Start"])
+    code, out = cli("zone", "apply-palette", "Start", project=proj,
+                    expect_ok=False)
+    check("apply-palette without a default raises",
+          code == 1 and "no default_palette" in out.get("error", ""))
+    code, out = cli("zone", "apply-palette", "Start", "w", project=proj,
+                    expect_ok=False)
+    check("apply-palette accepts no positional arg (parse error)",
+          code == 2)
+
+
 def test_export(proj: Path) -> None:
     out_dir = TMP / "exported"
     code, out = cli("export", out_dir, project=proj)
@@ -256,7 +298,8 @@ def test_export(proj: Path) -> None:
 
 def test_demo_screens() -> None:
     demo = TMP / "demo_copy"
-    code, out = cli("new", demo, "--name", "democopy", "--template", "copy")
+    code, out = cli("new", demo, "--name", "democopy", "--template", "copy",
+                    "--from", ROOT / "tests/fixtures/demo_project")
     check("demo copy project", code == 0)
     shots = ROOT / "screenshots"
     shots.mkdir(exist_ok=True)
@@ -282,6 +325,7 @@ def main() -> int:
     test_batch_and_dry_run(proj)
     test_render(proj)
     test_palettes_textures(proj)
+    test_zone_palette(proj)
     test_export(proj)
     test_demo_screens()
     print()

@@ -35,6 +35,8 @@ from maker.gui.roomview import TOOLS, RoomView
 from maker.gui.widgets import (
     Button, Container, Dialog, Label, ListView, PopupMenu, TabBar, cmd_down,
 )
+from maker.state import save_last_project
+from src.project import PROJECTS_DIR
 
 MAKER_ROOT = Path(__file__).resolve().parent.parent.parent
 LOG_DIR = MAKER_ROOT / ".maker_tmp"
@@ -114,6 +116,8 @@ class App:
         self.status(f"opened {model.project.root}  ({len(model.cells)} cells,"
                     f" most-used palette: "
                     f"{max(usage, key=usage.get) if usage else '-'})")
+        if not self.headless:
+            save_last_project(model.project.root)
 
     def _build_chrome(self) -> None:
         self.toolbar = Container()
@@ -183,7 +187,7 @@ class App:
         self._refresh_strip_lists()
 
     def _refresh_strip_lists(self) -> None:
-        self.pal_list.set_items([("(auto: cell's own)", "__auto__")] +
+        self.pal_list.set_items([("(auto: zone default)", "__auto__")] +
                                 [(n, n) for n in sorted(self.model.palettes)])
         self.pal_list.selected_value = self.brush_palette or "__auto__"
         self.ent_list.set_items([(t, t) for t in ops.entity_types(self.model)])
@@ -731,7 +735,7 @@ class App:
                            source=self.model.project.root
                            if template == "copy" else None)
             self._switch(ProjectModel.open(dest))
-        default = str(self.model.project.root.parent / "new_game")
+        default = str(PROJECTS_DIR / "new_game")
         self._guard_unsaved(lambda: self.prompt(
             "New project", [("folder", default), ("name", "new_game"),
                             ("title", "New Game"),
@@ -893,8 +897,10 @@ class App:
         self.toolbar.draw(s, self)
         title = self.model.manifest.get("title", "")
         dirty = " ●" if self.model.is_dirty else ""
-        tw = T.font(13, bold=True).size(title + dirty)[0]
-        T.text(s, title + dirty, (w - T.INSPECTOR_W - tw - 12, 9),
+        fnt = T.font(13, bold=True)
+        while title and fnt.size(title + dirty)[0] > T.INSPECTOR_W - 24:
+            title = title[:-1]
+        T.text(s, title + dirty, (w - T.INSPECTOR_W + 12, 9),
                T.ACCENT if dirty else T.TEXT, 13, bold=True)
         # tool strip
         pygame.draw.rect(s, T.PANEL, (0, T.TOOLBAR_H, T.TOOLSTRIP_W,

@@ -209,6 +209,18 @@ def _draw_entities(surface, room, cam_x, cam_y, zoom, font):
                                (rect[0] + rect[2] // 2, rect[1] + rect[3] // 2),
                                max(3, rect[2] // 4))
             label = font.render("SPAWN", True, (70, 255, 120))
+        elif etype in ("light", "ambient_light"):
+            pygame.draw.rect(overlay, (255, 230, 120, 210), rect, 2)
+            if etype == "light":
+                try:
+                    radius = float(entity.get("radius", 48))
+                except (TypeError, ValueError):
+                    radius = 48.0
+                pygame.draw.circle(overlay, (255, 230, 120, 140),
+                                   (rect[0] + rect[2] // 2,
+                                    rect[1] + rect[3] // 2),
+                                   max(4, int(radius * SCALE * zoom)), 1)
+            label = font.render(etype, True, (255, 235, 160))
         else:
             pygame.draw.rect(overlay, (255, 130, 90, 200), rect, 2)
             label = font.render(etype, True, (255, 205, 170))

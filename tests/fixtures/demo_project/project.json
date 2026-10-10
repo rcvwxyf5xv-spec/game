@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "name": "demo",
+  "title": "Demo fixture",
+  "entity_types": [
+    "spawn_point",
+    "save_station",
+    "item_missile",
+    "item_super_missile",
+    "item_power_bomb",
+    "item_energy",
+    "item_reserve_tank",
+    "item_varia_suit",
+    "item_spazer",
+    "item_xray",
+    "item_map"
+  ]
+}

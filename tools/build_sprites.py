@@ -1,8 +1,8 @@
 """
 Build-time sprite sheet generator: renders each data-driven pixel-art
-sprite definition in assets/sprite_src/<name>.json (hand-editable ASCII
+sprite definition in <project>/sprite_src/<name>.json (hand-editable ASCII
 frame grids, a future editor's format) into a horizontal strip sheet
-assets/sprites/<name>.png plus a runtime metadata JSON (frame size,
+<project>/sprites/<name>.png plus a runtime metadata JSON (frame size,
 anchor, per-animation frame ranges and tick rates).
 
 Sheets are deterministic build outputs and should be committed; the game

@@ -47,8 +47,12 @@ DEFAULT_ENTITY_TYPES = [
     "spawn_point", "save_station", "item_missile",
     "item_super_missile", "item_power_bomb", "item_energy",
     "item_reserve_tank", "item_varia_suit", "item_spazer",
-    "item_xray", "item_map",
+    "item_xray", "item_map", "light", "ambient_light",
 ]
+
+# Types the engine itself understands; always offered even when a
+# project's manifest "entity_types" list predates them.
+ENGINE_ENTITY_TYPES = ["spawn_point", "save_station", "light", "ambient_light"]
 
 OPS: Dict[str, callable] = {}
 
@@ -149,20 +153,29 @@ def _dominant_palette(tiles_grid) -> str:
     return max(sorted(counts), key=counts.__getitem__)
 
 
+def _zone_default_palette(model, zone) -> str:
+    """A zone's default_palette, or "" when unset/undefined."""
+    z = model._zones.get(zone or "")
+    if isinstance(z, dict):
+        return z.get("default_palette", "") or ""
+    return ""
+
+
 def _resolve_tile(kind: str, palette_arg, cur: dict, dominant: str,
-                  keep_existing_only_if_kind_unchanged: bool = False) -> dict:
+                  keep_existing_only_if_kind_unchanged: bool = False,
+                  zone_palette: str = "") -> dict:
     """Palette semantics: kind "empty" drops the palette; an explicit
     palette wins; otherwise keep the tile's existing palette if it has
     one (only when its kind is unchanged, for ascii edits), else the
-    cell's dominant palette."""
+    cell's zone default_palette, else the cell's dominant palette."""
     if kind == "empty":
         return {"kind": "empty"}
     if palette_arg is not None:
         return {"kind": kind, "palette": palette_arg}
     if keep_existing_only_if_kind_unchanged and cur.get("kind") != kind:
-        pal = dominant
+        pal = zone_palette or dominant
     else:
-        pal = cur.get("palette") or dominant
+        pal = cur.get("palette") or zone_palette or dominant
     if pal:
         return {"kind": kind, "palette": pal}
     return {"kind": kind}
@@ -369,7 +382,8 @@ def new_cell(model, coord, zone="", template="walled", palette=None,
         zone: cosmetic zone label; defaults to a neighbour's zone.
         template: "walled" (solid ring, empty interior), "empty" or
             "solid"; default "walled".
-        palette: tile palette for solid tiles; defaults to the most-used
+        palette: tile palette for solid tiles; defaults to the zone's
+            default_palette when the zone has one, else the most-used
             palette among neighbours, else overall, else "default".
         background_color: [r, g, b]; defaults to a neighbour's.
     """
@@ -395,7 +409,8 @@ def new_cell(model, coord, zone="", template="walled", palette=None,
                                 if background_color is not None
                                 else [18, 18, 28])
         if palette is None:
-            palette = _default_new_cell_palette(model, coord)
+            palette = _zone_default_palette(model, zone) \
+                or _default_new_cell_palette(model, coord)
         cell = {
             "coord": list(coord),
             "zone": zone or "",
@@ -710,9 +725,11 @@ def set_tiles(model, coord, points, kind, palette=None):
             raise OpError("set_tiles requires at least one point")
         model._touch_cell(coord)
         dominant = _dominant_palette(data["tiles"])
+        zone_palette = _zone_default_palette(model, data.get("zone", ""))
         for tx, ty in pts:
             data["tiles"][ty][tx] = _resolve_tile(
-                kind, palette, data["tiles"][ty][tx], dominant)
+                kind, palette, data["tiles"][ty][tx], dominant,
+                zone_palette=zone_palette)
         return {"cell": list(coord), "points": len(pts)}
 
 
@@ -747,10 +764,12 @@ def fill_rect(model, coord, x0, y0, x1, y1, kind, palette=None):
         y1 = min(CELL_HEIGHT_TILES - 1, y1)
         model._touch_cell(coord)
         dominant = _dominant_palette(data["tiles"])
+        zone_palette = _zone_default_palette(model, data.get("zone", ""))
         for ty in range(y0, y1 + 1):
             for tx in range(x0, x1 + 1):
                 data["tiles"][ty][tx] = _resolve_tile(
-                    kind, palette, data["tiles"][ty][tx], dominant)
+                    kind, palette, data["tiles"][ty][tx], dominant,
+                    zone_palette=zone_palette)
         return {"cell": list(coord), "tiles": (x1 - x0 + 1) * (y1 - y0 + 1)}
 
 
@@ -773,10 +792,12 @@ def flood_fill(model, coord, tx, ty, kind, palette=None):
         _check_tile_bounds(tx, ty, coord)
         model._touch_cell(coord)
         dominant = _dominant_palette(data["tiles"])
+        zone_palette = _zone_default_palette(model, data.get("zone", ""))
         target = data["tiles"][ty][tx]
         target_key = (target.get("kind"),
                       target.get("palette", ""))
-        new = _resolve_tile(kind, palette, target, dominant)
+        new = _resolve_tile(kind, palette, target, dominant,
+                            zone_palette=zone_palette)
         new_key = (new["kind"], new.get("palette", ""))
         if target_key == new_key:
             return {"cell": list(coord), "filled": 0}
@@ -827,9 +848,11 @@ def paint_world(model, points, kind, palette=None):
         for (cx, cy), pts in grouped.items():
             data = model.cell((cx, cy))
             dominant = _dominant_palette(data["tiles"])
+            zone_palette = _zone_default_palette(model, data.get("zone", ""))
             for tx, ty in pts:
                 data["tiles"][ty][tx] = _resolve_tile(
-                    kind, palette, data["tiles"][ty][tx], dominant)
+                    kind, palette, data["tiles"][ty][tx], dominant,
+                    zone_palette=zone_palette)
                 painted += 1
         return {"painted": painted, "skipped": skipped}
 
@@ -970,6 +993,7 @@ def set_cell_ascii(model, coord, rows, legend=None, palette=None):
                 chars[(x, y)] = legend[ch]
         model._touch_cell(coord)
         dominant = _dominant_palette(data["tiles"])
+        zone_palette = _zone_default_palette(model, data.get("zone", ""))
         for y, row in enumerate(rows):
             for x, ch in enumerate(row):
                 if ch == ".":
@@ -978,7 +1002,8 @@ def set_cell_ascii(model, coord, rows, legend=None, palette=None):
                     kind = legend[ch]
                     data["tiles"][y][x] = _resolve_tile(
                         kind, palette, data["tiles"][y][x], dominant,
-                        keep_existing_only_if_kind_unchanged=True)
+                        keep_existing_only_if_kind_unchanged=True,
+                        zone_palette=zone_palette)
         return {"cell": list(coord)}
 
 
@@ -1350,8 +1375,8 @@ def remove_entity(model, coord, index):
 
 def entity_types(model) -> List[str]:
     """All known entity types: manifest "entity_types" if present, else
-    the default list, plus any types actually found in cells. Helper,
-    not an op."""
+    the default list, plus ENGINE_ENTITY_TYPES and any types actually
+    found in cells. Helper, not an op."""
     defaults = list(DEFAULT_ENTITY_TYPES)
     listed = model.manifest.get("entity_types")
     if isinstance(listed, list):
@@ -1359,6 +1384,10 @@ def entity_types(model) -> List[str]:
     else:
         types = list(defaults)
     seen = set(types)
+    for t in ENGINE_ENTITY_TYPES:
+        if t not in seen:
+            seen.add(t)
+            types.append(t)
     for data in model.cells.values():
         for entity in data.get("entities", []):
             t = entity.get("type")
@@ -1381,7 +1410,8 @@ def set_zone(model, name, data):
         name: zone name.
         data: zone data dict; missing keys are filled from a built-in
             default. Validated: rock/cap ramps of 8 RGB triples, accent
-            and optional fog_top/fog_bottom/ambient as single RGB.
+            and optional fog_top/fog_bottom/ambient as single RGB;
+            optional default_palette names an existing palette.
     """
     with model.transaction("set_zone"):
         name = _require_zone_name(name)
@@ -1390,6 +1420,12 @@ def set_zone(model, name, data):
         zone = _zone_default()
         zone.update(copy.deepcopy(data))
         _validate_zone(zone, name)
+        dp = zone.get("default_palette")
+        if dp is None:
+            zone.pop("default_palette", None)
+        else:
+            dp = _require_palette_name(dp)
+            _require_palette(model, dp)
         model._touch_zones()
         model._zones[name] = zone
         return {"zone": name}
@@ -1492,6 +1528,78 @@ def set_zone_color(model, name, key, value, index=None):
                 f"unknown zone color key {key!r} (expected rock, cap, "
                 f"accent, fog_top, fog_bottom or ambient)")
         return {"zone": name, "key": key, "index": index}
+
+
+@op
+def set_zone_palette(model, zone, palette):
+    """Set (or clear) a zone's default_palette key.
+
+    Args:
+        zone: existing zone name.
+        palette: existing palette name, or None/"" to clear the key.
+            New cells in the zone and "auto" palette paint strokes on
+            its tiles default to this palette.
+    """
+    with model.transaction("set_zone_palette"):
+        zone = _require_zone_name(zone)
+        if zone not in model._zones:
+            raise OpError(f"no zone {zone!r}")
+        pal = None
+        if palette not in (None, ""):
+            pal = _require_palette_name(palette)
+            _require_palette(model, pal)
+        model._touch_zones()
+        if pal is None:
+            model._zones[zone].pop("default_palette", None)
+        else:
+            model._zones[zone]["default_palette"] = pal
+        return {"zone": zone, "default_palette": pal}
+
+
+@op
+def apply_zone_palette(model, zone, palette=None, only_unset=False):
+    """Re-skin every non-empty tile in a zone's cells with a palette.
+
+    Args:
+        zone: existing zone name.
+        palette: palette name, or None to use the zone's
+            default_palette (errors when the zone has none).
+        only_unset: only touch tiles that have no palette yet.
+    Single undoable transaction; changed cells are marked dirty.
+    """
+    with model.transaction("apply_zone_palette"):
+        zone = _require_zone_name(zone)
+        if zone not in model._zones:
+            raise OpError(f"no zone {zone!r}")
+        if palette in (None, ""):
+            palette = model._zones[zone].get("default_palette", "")
+            if not palette:
+                raise OpError(
+                    f"zone {zone!r} has no default_palette; pass a "
+                    f"palette to apply")
+        _require_palette(model, palette)
+        cells_changed = 0
+        tiles_changed = 0
+        for coord in sorted(model.cells):
+            data = model.cell(coord)
+            if data.get("zone", "") != zone:
+                continue
+            model._touch_cell(coord)
+            changed = False
+            for row in data["tiles"]:
+                for t in row:
+                    if t.get("kind") == "empty":
+                        continue
+                    if only_unset and t.get("palette"):
+                        continue
+                    if t.get("palette") == palette:
+                        continue
+                    t["palette"] = palette
+                    changed = True
+                    tiles_changed += 1
+            if changed:
+                cells_changed += 1
+        return {"cells": cells_changed, "tiles": tiles_changed}
 
 
 # =========================================================================
@@ -1600,7 +1708,8 @@ def set_palette_color(model, name, ramp, index, rgb):
 
 @op
 def rename_palette(model, old, new):
-    """Rename a palette, re-pointing every tile that uses it.
+    """Rename a palette, re-pointing every tile that uses it and every
+    zone whose default_palette names it.
 
     Args:
         old: existing palette name.
@@ -1623,6 +1732,10 @@ def rename_palette(model, old, new):
                         for row in model.cell(c)["tiles"] for t in row)]
         for c in users:
             model._touch_cell(c)
+        zone_users = [z for z in sorted(model._zones)
+                      if model._zones[z].get("default_palette") == old]
+        if zone_users:
+            model._touch_zones()
         data = model._palettes.pop(old)
         data["name"] = new
         model._palettes[new] = data
@@ -1632,8 +1745,10 @@ def rename_palette(model, old, new):
                 for t in row:
                     if t.get("palette") == old:
                         t["palette"] = new
+        for z in zone_users:
+            model._zones[z]["default_palette"] = new
         return {"renamed": True, "old": old, "new": new,
-                "tiles_updated": len(users)}
+                "tiles_updated": len(users), "zones_updated": len(zone_users)}
 
 
 @op
@@ -1644,7 +1759,9 @@ def delete_palette(model, name, replace_with=None):
         name: palette name.
         replace_with: optional palette to re-point using tiles to; error
             listing usage count when the palette is used and this is
-            missing.
+            missing. Zones whose default_palette names the palette are
+            refused without replace_with and have the key cleared with
+            it.
     """
     with model.transaction("delete_palette"):
         _require_palette(model, name)
@@ -1657,6 +1774,13 @@ def delete_palette(model, name, replace_with=None):
             raise OpError(
                 f"palette {name!r} is used by {len(users)} cells; pass "
                 f"replace_with to delete it")
+        zone_refs = [z for z in sorted(model._zones)
+                     if model._zones[z].get("default_palette") == name]
+        if zone_refs and replace_with is None:
+            raise OpError(
+                f"palette {name!r} is the default palette of "
+                f"{len(zone_refs)} zone(s) ({', '.join(zone_refs)}); pass "
+                f"replace_with to delete it")
         model._touch_palette(name)
         for c in users:
             model._touch_cell(c)
@@ -1666,8 +1790,13 @@ def delete_palette(model, name, replace_with=None):
                     for t in row:
                         if t.get("palette") == name:
                             t["palette"] = replace_with
+        if zone_refs:
+            model._touch_zones()
+            for z in zone_refs:
+                model._zones[z].pop("default_palette", None)
         del model._palettes[name]
-        return {"deleted": name, "repointed_cells": len(users)}
+        return {"deleted": name, "repointed_cells": len(users),
+                "cleared_zone_palettes": len(zone_refs)}
 
 
 # =========================================================================
@@ -1683,7 +1812,7 @@ def set_sprite_data(model, name, data):
     Args:
         name: sprite name.
         data: sprite source dict (name/colors/heights/voxel_px/anchor/
-            animations with frames, as in assets/sprite_src/*.json).
+            animations with frames, as in <project>/sprite_src/*.json).
     """
     with model.transaction("set_sprite_data"):
         if not isinstance(data, dict):

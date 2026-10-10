@@ -4,8 +4,11 @@ Headless preview renderer for the voxel look.
 Constructs the real WorldLoader/GameWorld, reuses src.main's frame
 pipeline (render_frame / render_transition), and writes PNG screenshots
 to /Users/ben/Documents/game/screenshots/:
-  <zone_slug>.png      one per zone (Blue/Green/Pink/Red/Kraid rooms)
-  springs_room.png     room cell (2,3) (spring pads)
+  preview_<zone_slug>.png  one per zone of the project (first cell of
+                           each zone from the world; the slug is the
+                           lowercased zone name, non-alphanumerics
+                           stripped)
+  springs_room.png     room cell (2,3) (spring pads; skipped if missing)
   oneway_room.png      room cell (-1,3) (one-way platforms)
   save_room.png        room cell (5,1) (save station)
   transition.png       mid-door-transition frame
@@ -14,8 +17,10 @@ to /Users/ben/Documents/game/screenshots/:
   sprites.png          contact sheet of sprites + spring/oneway textures
   player_closeup.png   2x close-up of every player frame
 
-Prints the lazy art-build time and the average frame time over 120
-rendered frames in the Blue start room.
+The demo-only captures (transition / upper room / shaft / feature rooms)
+are skipped with a note when the project's world does not contain the
+cell they need. Prints the lazy art-build time and the average frame
+time over 120 rendered frames in the start room.
 
 Run: SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \\
      .venv/bin/python -m tools.render_preview [--project DIR]
@@ -48,16 +53,25 @@ from src.main import (  # noqa: E402
 )
 from src.project import Project, active, set_active  # noqa: E402
 
-ZONES = [
-    ("Blue Brinstar", (0, 0), "blue"),
-    ("Green Brinstar", (2, 3), "green"),
-    ("Pink Brinstar", (-4, 3), "pink"),
-    ("Red Brinstar", (8, 3), "red"),
-    ("Kraid's Lair", (5, 9), "kraid"),
-]
-
 ART_BUILD_TIME = 0.0
 AVG_FRAME_MS = 0.0
+
+
+def _slug(name: str) -> str:
+    """Lowercased zone name with non-alphanumerics stripped, e.g.
+    "Kraid's Lair" -> "kraidslair"."""
+    return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+def zone_first_cells(loader: WorldLoader) -> dict:
+    """zone name -> first (smallest) authored cell coord holding it."""
+    first = {}
+    for coord in sorted(loader.index.cell_files):
+        cell = loader.get_cell(coord)
+        zone = (cell.zone or "").strip()
+        if zone and zone not in first:
+            first[zone] = coord
+    return first
 
 
 def _stand_on_floor(world):
@@ -178,17 +192,18 @@ def capture_shaft(screen, renderer, world, loader, out_dir):
     print(f"  saved shaft.png")
 
 
-def capture_sprites(out_dir, registry, sprites):
+def capture_sprites(out_dir, registry, sprites, project):
     """Contact sheet of data-driven sprites + palette textures: every player
     frame (both facings) at the game scale, the save station frames, the
-    spring 3 frames and oneway 4 variants for blue/green/red Brinstar, plus
-    one item frame, on a dark gray background."""
+    spring 3 frames and oneway 4 variants for every palette of the
+    project, plus one item frame, on a dark gray background."""
     slot = 64
     cols = 16
+    palettes = sorted(p.stem for p in project.palettes_dir.glob("*.json"))
     n_player = 2 * (2 + 6 + 1 + 1)
     n_save = 4
-    n_spring = 3 * 3
-    n_oneway = 3 * 4
+    n_spring = len(palettes) * 3
+    n_oneway = len(palettes) * 4
     total = n_player + n_save + n_spring + n_oneway + 1
     rows = (total + cols - 1) // cols
     sheet = pygame.Surface((cols * slot, rows * slot))
@@ -219,8 +234,8 @@ def capture_sprites(out_dir, registry, sprites):
         surf, ax, ay = sprites.get_frame("save_station", "idle", i * 8)
         blit_anchored(surf, ax, ay, ci)
         ci += 1
-    # spring frames + oneway variants for three palettes
-    for palette in ("blue_brinstar", "green_brinstar", "red_brinstar"):
+    # spring frames + oneway variants for every project palette
+    for palette in palettes:
         for frame in range(3):
             surf, _ = registry.get(palette, "spring", tick=frame * 6)
             blit_centered(surf, (ci % cols) * slot, (ci // cols) * slot)
@@ -280,7 +295,7 @@ def main(argv=None):
     world = GameWorld(loader)
     renderer = VoxelRenderer()
 
-    # warm up: the Blue start room (lazy art builds here)
+    # warm up: the start room (lazy art builds here)
     t0 = time.time()
     cam_x, cam_y = compute_camera(world)
     renderer.render_frame(screen, world, cam_x, cam_y, 1, facing=1)
@@ -304,37 +319,55 @@ def main(argv=None):
     AVG_FRAME_MS = sum(times) / len(times) * 1000.0
 
     print("zone screenshots:")
-    for zone, coord, slug in ZONES:
-        capture_zone_shot(screen, renderer, world, loader, coord, slug, out_dir)
+    for zone, coord in sorted(zone_first_cells(loader).items()):
+        capture_zone_shot(screen, renderer, world, loader, coord,
+                          f"preview_{_slug(zone)}", out_dir)
 
     print("transition screenshot:")
     world = GameWorld(loader)
     renderer = VoxelRenderer()
-    capture_transition(screen, renderer, world, loader, out_dir)
+    start_cell = loader.get_cell(loader.index.start_cell)
+    if start_cell is not None and start_cell.edge("east").edge_type == "door":
+        capture_transition(screen, renderer, world, loader, out_dir)
+    else:
+        print(f"  skipping transition.png (no door east of start cell "
+              f"{loader.index.start_cell})")
 
     print("upper room screenshot:")
     world = GameWorld(loader)
     renderer = VoxelRenderer()
-    capture_upper_room(screen, renderer, world, loader, out_dir)
+    if loader.cell_exists((0, -1)):
+        try:
+            capture_upper_room(screen, renderer, world, loader, out_dir)
+        except RuntimeError as exc:
+            print(f"  skipping upper_room.png ({exc})")
+    else:
+        print("  skipping upper_room.png (no cell (0,-1))")
 
     print("main shaft screenshot:")
     world = GameWorld(loader)
     renderer = VoxelRenderer()
-    capture_shaft(screen, renderer, world, loader, out_dir)
+    if loader.cell_exists((4, 2)):
+        capture_shaft(screen, renderer, world, loader, out_dir)
+    else:
+        print("  skipping shaft.png (no cell (4,2))")
 
     print("feature room screenshots:")
     for coord, slug in ((2, 3), "springs_room"), ((-1, 3), "oneway_room"), ((5, 1), "save_room"):
         world = GameWorld(loader)
         renderer = VoxelRenderer()
-        capture_zone_shot(screen, renderer, world, loader, coord, slug, out_dir)
+        if loader.cell_exists(coord):
+            capture_zone_shot(screen, renderer, world, loader, coord, slug, out_dir)
+        else:
+            print(f"  skipping {slug}.png (no cell {coord})")
 
     print("sprite contact sheet:")
     sprites = default_sprites()
-    capture_sprites(out_dir, renderer.registry, sprites)
+    capture_sprites(out_dir, renderer.registry, sprites, active())
     capture_player_closeup(out_dir, sprites)
 
     print(f"lazy art build time on first render: {ART_BUILD_TIME * 1000:.1f} ms")
-    print(f"average frame time (120 frames, Blue start): {AVG_FRAME_MS:.2f} ms")
+    print(f"average frame time (120 frames, start room): {AVG_FRAME_MS:.2f} ms")
     print("done")
 
 

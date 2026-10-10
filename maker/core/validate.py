@@ -298,6 +298,14 @@ def validate(model) -> list:
                         f"tile palette {pal!r} is not a defined palette",
                         coord, {"palette": pal}))
 
+    for name in sorted(model.zones):
+        dp = model.zones[name].get("default_palette")
+        if dp and dp not in model.palettes:
+            issues.append(Issue(
+                "warning", "zone_palette_missing",
+                f"zone {name!r} default_palette {dp!r} is not a defined "
+                f"palette", None, {"zone": name, "palette": dp}))
+
     for name in sorted(model.palettes):
         palette = model.palettes[name]
         for kind, spec in (palette.get("textures") or {}).items():

@@ -900,6 +900,24 @@ class ZonesPanel(_ListAndForm):
                               lambda: app.run(ops.set_cell_props, coord,
                                               zone=name))], 24)
         f.spacer()
+        f.heading("Default palette")
+        f.add_row([
+            Label(lambda: m.zones[name].get("default_palette") or "(none)",
+                  T.TEXT, 12),
+            Button("...", lambda: app.open_menu(
+                [("(none)", lambda: app.run(ops.set_zone_palette, name, None))] +
+                [(p, lambda p=p: app.run(ops.set_zone_palette, name, p))
+                 for p in sorted(m.palettes)], app.mouse),
+                tooltip="choose the zone's default palette", size=12),
+            Button("Apply to zone tiles",
+                   lambda: app.confirm(
+                       f"Re-skin every tile in zone {name!r} with palette "
+                       f"{m.zones[name].get('default_palette')!r}?",
+                       lambda: app.run(ops.apply_zone_palette, name)),
+                   enabled=lambda: bool(m.zones[name].get("default_palette")),
+                   size=12),
+        ], T.ROW_H, [None, 30, 150])
+        f.spacer()
         f.heading("Colours (live preview in the room)")
         z = m.zones[name]
         rows = []

@@ -1,221 +1,276 @@
-# Metroidvania Map Demo
+# Metroidvania Maker
 
-A minimal Super Metroid-style engine skeleton built around a grid-addressed,
-file-backed world. Graphics are plain polygons (no art assets) -- this is a
-proof of the map/physics architecture, not a finished game.
+A fixed 2D voxel-art metroidvania engine plus **Metroidvania Maker**, a
+separate program for authoring games on top of that engine.
 
-## Glossary
+The engine never changes: it reads one "project" (a game's data folder)
+and plays it, one room at a time. The Maker (the `maker/` package) edits
+project folders — world, zones, palettes, textures, sprites, settings —
+and can export each project as its own playable game. **This repo
+carries no game data.** Games live in `projects/<name>/`, which this
+repo's `.gitignore` ignores so each game can be its own git repository.
 
-- **Cell** = one square of the WORLD MAP grid, addressed (cx, cy); fixed
-  16x10 tiles; one JSON file. Never use "cell" for anything else.
-- **Tile** = one 16x16 game-pixel square INSIDE a cell (kind + palette).
-  Never use "tile" for map squares.
-- **Room** = runtime group of cells joined by open edges (computed, never
-  authored).
-- **Edge** = one side of a cell (wall / open / door). **Door** = an edge
-  that links to another cell's edge.
-- **Frame** = one sub-image of a texture sheet or sprite sheet (NOT "cell").
-- **Entity** = object placed at tile coords inside a cell. **Zone** =
-  cosmetic area label (visual theme, title card). **Palette** = named tile
-  texture set. **Project** = one complete game's data folder.
+Look and feel: late-90s / SNES-style flat 2D side-view, chunky
+voxel-pixel art, restrained palettes. Rooms are fully lit unless you
+author lighting inside them (see "Lighting" below).
 
-Coordinates: cell coords (cx, cy) on the world grid, y down, (0,0) = map
-centre; tile coords (tx, ty) local to a cell (0..15, 0..9) or room-local
-in an assembled room. Units: 1 tile = 16 game px, SCALE 3 -> 1 game px =
-3 screen px.
+## Terminology (read this once)
+
+The same words are used at two different scales. This project keeps them
+strictly separate:
+
+- **Cell** = one square of the WORLD MAP grid, addressed `(cx, cy)`; a
+  fixed 16x10 tiles; one JSON file. Never say "cell" for a map tile or
+  for a sprite/frame.
+- **Tile** = one 16x16 game-pixel square INSIDE a cell, described by a
+  collision `kind` plus a `palette` label. Never say "tile" for a map
+  square.
+
+Every other term (room, edge, door, entity, zone, palette, frame,
+project) is defined in the [glossary](#glossary).
+
+## What is where
+
+- `src/` — the fixed engine (data model, physics, room assembly, voxel
+  renderer). Never edited to change game content.
+- `maker/` — Metroidvania Maker: a headless core (`maker/core`) shared
+  by the editor window, a JSON command line (`maker.cli`) and the
+  Python API, plus the pygame GUI (`maker/gui`).
+- `templates/starter/` — the neutral starter project that `new` copies
+  to start a game. Never edit it via the editor.
+- `tests/` — headless test scripts plus `tests/fixtures/demo_project/`,
+  a frozen copy of the sample game used ONLY by tests.
+- `projects/` — the user's game projects; each is one complete game and
+  can be its own git repo. `projects/brinstar/` is the bundled sample
+  ("Metroidvania Voxel Demo": 111 cells, 5 zones).
+- `Metroidvania Maker.command` — macOS double-click launcher for the
+  editor.
+
+Removed from this repo (still in git history): the old demo world in
+`src/data/`, `assets/`, and the old generator/migration tools.
 
 ## Setup
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install pygame
-```
+A `.venv` virtualenv with Python 3.9 and pygame 2.6.1 is already
+included. If you ever recreate it: `python3.9 -m venv .venv && .venv/bin/pip
+install pygame==2.6.1` (there is no requirements file; pygame is the
+only dependency).
 
-(A `.venv` with pygame already installed is included in this directory.)
+## Quick start
 
-## Run the playable demo
-
-```bash
-source .venv/bin/activate
-python -m src.main
-```
-
-Runs another project (any folder with a project.json):
+Open the editor (double-click `Metroidvania Maker.command`, or):
 
 ```bash
-python -m src.main --project path/to/project
+.venv/bin/python -m maker
 ```
 
-Controls: Left/Right or A/D to move, Space/Up/W to jump, Esc to quit.
+It opens your last-opened project, else the first in `projects/`, else
+creates a fresh `projects/my_game` from the starter template. Play the
+bundled sample:
 
-Walk off the right edge of the starting cell to reach `(1, 0)`, or off the
-left edge to reach the L-shaped playspace spanning `(-1,0)`, `(-1,1)`,
-`(0,1)`. The HUD shows the current zone label, the world grid cell under
-the player, every cell the currently assembled playspace occupies, and
-which individual Cell objects are currently resident in memory.
+```bash
+.venv/bin/python -m src.main --project projects/brinstar
+```
+
+In-game: Left/Right or A/D move, Space/Up/W jump (double jump), Esc
+quits, G toggles the debug world-grid, H toggles the debug info window.
+
+## Where games live
+
+A project is a folder with `project.json` and, in the default layout:
+
+```
+world/world_index.json      cell -> file map + start cell
+world/cells/<x>_<y>.json    one file per cell
+palettes/<name>.json        named texture-set definitions
+textures/<palette>/         built PNG sheets per tile kind
+sprite_src/<name>.json      hand-editable sprite definitions
+sprites/<name>.json/.png    built sprite sheets + runtime metadata
+zones.json                  zone colours + fog + ambient + default_palette
+```
+
+`project.json` (format, name, title, entity_types) may override the
+layout with a `"paths"` dict (see `src/project.py` `DEFAULT_LAYOUT`).
+
+## Making a new game
+
+- **GUI:** the Project tab's "New project..." (defaults to
+  `projects/new_game`); "starter" starts from the template, "copy"
+  duplicates the current project.
+- **CLI:**
+
+```bash
+.venv/bin/python -m maker.cli new projects/mygame --name mygame --title "My Game"
+```
+
+Putting a game in its own git repo: the editor repo ignores `projects/`,
+so just `cd projects/mygame && git init` (ignore `builds/` and
+`.DS_Store`). The sample game is at
+`/Users/ben/Documents/game/projects/brinstar` and is meant to be its own
+repo too (see its README).
+
+## How the engine plays a project
+
+- The world is an infinite integer grid of **cells** centred on `(0, 0)`;
+  `world_index.json` is the only whole-world structure kept in memory.
+- A **room** is not authored: entering a cell flood-fills every cell
+  connected through `open` edges into one assembled room (capped at
+  `MAX_ASSEMBLED_CELLS`); `wall` and `door` edges stop the fill.
+- Cells load lazily from disk and are LRU-cached, so a world can be as
+  large as you like without a memory cost.
+- A `door` edge is an explicit link to a cell/edge; crossing it
+  reassembles from the target cell and plays a Super Metroid-style
+  camera-slide transition.
+
+## Lighting is authored only
+
+There is **no automatic lighting**. Rooms render flat and fully lit
+unless they contain an `ambient_light` entity, which darkens the room to
+its `color` (default: the zone's `ambient`); `light` entities then add
+pools of light with props `radius` (game px, default 48), `color`
+(default `[255,220,160]`) and optional `flicker`. `spawn_point`,
+`light` and `ambient_light` are invisible in-game; the editor overlay
+draws them (a light shows its radius ring). The GUI "Light" toolbar
+toggle (Cmd+L) shows/hides authored lighting in the editor view — the
+editor renders exactly what the game renders.
+
+Add a light with the Entity tool, or:
+
+```bash
+.venv/bin/python -m maker.cli --project DIR entity add CX,CY light --at TX,TY \
+    --prop radius=60 --prop 'color=[255,200,120]'
+```
+
+Non-light presentation still automatic per-zone (candidates for becoming
+authored data later): the parallax backdrop + fog gradient, ambient zone
+motes, landing dust, spring/crumble debris.
+
+## Zones and palettes
+
+- A **zone** is a cosmetic area label (colour theme, title card).
+  zones.json entries carry `rock`/`cap` ramps, `accent`,
+  `fog_top`/`fog_bottom`, `ambient`, and optionally
+  `"default_palette": "<palette name>"`.
+- A **palette** is a named tile-texture set, fully user-defined —
+  nothing Metroid-specific is required.
+- New cells in a zone, and the "auto" brush palette, use that zone's
+  `default_palette`. The GUI Zones tab has a "Default palette" picker
+  and "Apply to zone tiles"; the CLI has
+  `zone palette ZONE PALETTE|-` and
+  `zone apply-palette ZONE [--palette P] [--only-unset]`.
+- Renaming a palette re-points every tile and default_palette that uses
+  it (and renames `textures/<old>` on save); deleting a used palette
+  requires `replace_with`. `validate` warns `zone_palette_missing` when
+  a zone's default_palette is not a defined palette.
 
 ## Metroidvania Maker (editor)
-
-Metroidvania Maker (`maker/`) is a separate program for authoring games
-("projects") on top of this fixed engine. Each project owns its world
-data, zones, palettes, textures, sprites and settings, and can be
-exported as its own playable game. It never changes the engine's source.
 
 ### GUI
 
 ```bash
-.venv/bin/python -m maker                      # the demo project
-.venv/bin/python -m maker --project my_game    # any project folder
+.venv/bin/python -m maker                   # last project / first in projects/
+.venv/bin/python -m maker --project DIR     # a specific project
+.venv/bin/python -m maker --screenshot out.png   # headless frame, then exit
 ```
 
-Or double-click `Metroidvania Maker.command`.
-
-- **Layout:**
-  - Left: the live room, rendered by the game's own renderer.
-  - Right: the data pane, with the tabs Inspect, JSON, Problems,
-    Palettes, Zones, Sprites and Project.
-- **Tools:**
-  - Select (V), Paint (B), Rectangle (R), Fill (F), Erase (X),
-    Eyedropper (I), Entity (N) and Edge/Door (E).
-  - Keys 1–5 pick the brush kind.
-  - Right-drag erases.
-- **World Map (Tab):**
-  - Click to select a cell; double-click to open its room.
-  - N creates a cell on an empty square, Del deletes, drag moves,
-    Alt-drag duplicates, and S sets the start cell.
-- **Editing and saving:**
-  - Cmd+Z / Shift+Cmd+Z undo and redo; a whole drag counts as one
-    step.
-  - Cmd+S saves.
-  - F5 saves, then playtests from the hovered tile.
-  - "Build Game" exports a standalone folder.
-- **Palettes:** editing colours rebuilds the textures live. Import or
-  export PNG art per tile kind.
-- **Zones:** edit the zone colours.
-- **Sprites:** edit the source JSON, then rebuild the sheet.
+- **Layout:** toolbar (top), tool strip (left), Room Editor / World Map
+  viewport (centre), data pane with the tabs Inspect, JSON, Problems,
+  Palettes, Zones, Sprites and Project (right), status bar (bottom).
+- **Tools:** Select (V), Paint (B), Rectangle (R), Fill (F), Erase (X),
+  Eyedropper (I), Entity (N), Edge/Door (E). Keys 1–5 pick the brush
+  kind.
+- **World Map (Tab):** click selects a cell, double-click opens its
+  room; N creates a cell on an empty square, Del deletes, drag moves,
+  Alt-drag duplicates, S sets the start cell.
+- **Editing:** a whole drag is one undo step. Cmd+Z / Shift+Cmd+Z (or
+  Cmd+Y) undo/redo, Cmd+S saves, Cmd+G grid, Cmd+K kinds, Cmd+L
+  lighting, Cmd+Q quits; Tab switches room/map; F5 saves and playtests
+  from the hovered tile.
+- **Palettes tab:** create/rename/delete palettes, edit colours (sheets
+  rebuild live), import PNG art per tile kind or export a sheet.
+- **Zones tab:** new/rename/delete zones, edit colours, "Default
+  palette" picker and "Apply to zone tiles".
+- **Sprites tab:** edit the source JSON, then rebuild the sheet.
+- **Project tab:** project settings, New/Open project, Build Game.
 
 ### CLI (for agents and scripts)
 
-```bash
-.venv/bin/python -m maker.cli info                 # project summary (JSON)
-.venv/bin/python -m maker.cli validate             # rule checks
-.venv/bin/python -m maker.cli cell get 0,0 --ascii # one cell as 10 lines of 16 chars
-.venv/bin/python -m maker.cli render 0,0 --room --overlay grid,cells,edges,entities -o room.png
-.venv/bin/python -m maker.cli --project my_game export build/MyGame   # standalone game
-```
-
-The GUI, the CLI and the Python API share one headless core
-(`maker.core`), so an edit behaves the same whichever way you make it.
-The core validates every edit, reports new issues and saves atomically.
-The `batch` command runs a list of ops in one transaction.
-
-[AGENTS.md](AGENTS.md) has the full command guide, examples and the
-terminology glossary.
-
-Tests: `python -m tests.test_maker_core`, `python -m tests.test_maker_cli`
-and `python -m tests.test_maker_gui` (headless; the GUI test saves
-screenshots to `screenshots/maker_gui_*.png`).
-
-## Run the headless constraint checks
+Every command prints one JSON object on stdout
+(`{"ok": true, "result": ..., "issues": [...]}`, exit 0/1/2); mutating
+commands save automatically.
 
 ```bash
-source .venv/bin/activate
-python -m tests.test_world_constraints
+.venv/bin/python -m maker.cli --project DIR info
+.venv/bin/python -m maker.cli --project DIR validate
+.venv/bin/python -m maker.cli --project DIR cell get 0,0 --ascii
+.venv/bin/python -m maker.cli --project DIR render 0,0 --room \
+    --overlay grid,cells,edges,entities -o room.png
+.venv/bin/python -m maker.cli --project DIR export build/MyGame
+.venv/bin/python -m maker.cli --project DIR playtest
+.venv/bin/python -m maker.cli --project DIR batch commands.json
 ```
 
-This exercises the real engine code (no pygame window) and verifies:
-- the world grid is centered on `(0, 0)`, with `(1, 0)` directly to its right
-- a playspace can span multiple, oddly-arranged grid cells (the L-shaped
-  group) purely because those cells' shared edges are `open` -- never
-  because of any declared "these cells belong to room X" label
-- flood-filling from any member cell of a group reaches the same group
-- only a bounded number of `Cell` objects are ever loaded in memory at once
-  (LRU eviction), regardless of how large the authored world is
-- walking through doors between cell-groups, and moving seamlessly within
-  a single multi-cell group, both work through the real physics/transition
-  code -- including a door anchored to a cell that sits on a concave/
-  internal part of its group's bounding box (not just the outer edge)
+Without `--project`, the CLI resolves the project `METROIDVANIA_PROJECT`
+env -> last opened -> first in `projects/` and errors ("no project; pass
+--project DIR or run `new`") instead of auto-creating one. `--dry-run`
+applies + validates without saving; `.venv/bin/python -m maker.cli ops`
+lists every op with signature and docstring; `batch` runs a list of ops
+in one transaction (rolls back on any error). The GUI, CLI and Python
+API share one headless core, so an edit behaves identically whichever
+way it is made.
 
-## Regenerate the sample world data
+### Export
+
+"Build Game" writes a standalone folder (default
+`<project>/builds/<name>`); the CLI equivalent is `export DIR`. The
+export bundles the fixed engine (`src/`) with the project's data and a
+`project.json` at the root, so the game runs anywhere with Python 3 +
+pygame (`python3 -m src.main`, or play.command / play.sh). It refuses on
+unsaved changes or validation errors (use `--force`) and only overwrites
+previous exports.
+
+## Tests
 
 ```bash
-source .venv/bin/activate
-python -m tools.generate_sample_world
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m tests.test_maker_core
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m tests.test_maker_cli
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m tests.test_maker_gui
 ```
 
-This (re)writes `src/data/world_index.json` and `src/data/cells/*.json` from
-the cell-building code in `tools/generate_sample_world.py`. It's a tool, not
-part of the runtime -- a future level editor, mod loader, or procedural
-generator would produce the same JSON shape through `src/data/serialize.py`.
+The core test expects `checks failed: 0`; the CLI and GUI tests expect
+`0 failure(s)`. The GUI test saves screenshots to `screenshots/`.
 
-## Architecture
+## More documentation
 
-```
-src/data/        -- the "database": pure data, no engine/pygame imports
-  schema.py        dataclasses: Cell, Edge, WorldIndex; direction vocabulary
-  serialize.py     dataclasses <-> JSON
-  world_index.json cell -> filename map (small, always fully loaded)
-  cells/*.json     one file per 1x1 grid cell (tiles, 4 edges, entities)
+- [AGENTS.md](AGENTS.md) — rules for AI agents (owner preferences,
+  commands, testing, how to add a data-driven engine feature).
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module-by-module map,
+  data-format reference and the full glossary.
 
-src/engine/      -- the engine: no knowledge of JSON or specific cells
-  constants.py     tile/cell sizes, physics tuning, MAX_ASSEMBLED_CELLS cap
-  physics.py       tile-grid AABB collision, gravity (map-data agnostic)
-  room_assembler.py flood-fills a cell's `open`-edge group into one
-                    AssembledRoom; the only place "what counts as one
-                    loaded room" is decided
-  world_loader.py  lazy-loads Cell objects from the data layer (LRU cache),
-                    delegates assembly to room_assembler
-  game_world.py    glue: owns player position, drives door transitions
+## Glossary
 
-src/main.py      -- pygame rendering + input, the only gameplay pygame code
-tools/           -- offline content-generation tooling (not imported by
-                    the engine), e.g. tools/generate_sample_world.py
-tests/           -- headless checks against the real engine code
-```
-
-### Why it's split this way
-
-- **World addressing**: the world is an infinite integer grid centered on
-  `(0, 0)`. `WorldIndex.cell_files` is the only thing that must describe
-  the whole world, and it's tiny (just cell -> filename). Individual cells
-  are loaded from their own JSON file on first use and can be evicted,
-  so the authored world can grow arbitrarily large without growing memory
-  use -- see `WorldLoader`'s LRU cache and the eviction log line it prints.
-- **Room membership is computed, not declared**: each `Cell` only knows its
-  own tiles and what's on its own 4 edges -- `wall`, `open`, or `door`
-  (with a target cell/edge/door id). There is no "room name" anywhere in
-  the data model. When the player enters a cell, `room_assembler.assemble()`
-  flood-fills outward through every `open` edge (stopping at `wall`/`door`
-  edges) and stitches the result into one `AssembledRoom`, capped at
-  `MAX_ASSEMBLED_CELLS` so a very large open area can't pull the whole map
-  into memory at once (for a real design that needs a single huge room, the
-  plan is to slice it with an "invisible wall" -- a wall+door pair placed
-  as an artificial screen transition -- rather than relaxing this cap).
-  This is what makes the L-shaped playspace in the demo span 3 cells with
-  no "room" concept declaring it so: it's emergent purely from edge data.
-- **Doors are per-cell-edge, not per-room**: a `door` edge lists exactly
-  which cell/edge it leads to. `room_assembler` anchors each door to the
-  specific member cell it belongs to (`DoorCrossing.cell_rect`), not to
-  the assembled room's overall bounding box -- so a door on a cell that
-  sits on a concave/internal part of an oddly-shaped group's bounding box
-  (like the L-room's notch) still triggers correctly.
-- **Cosmetic-only zone labels**: a `Cell` may carry an optional `zone`
-  string (e.g. "L-Shaped Passage") purely for HUD/music/ambience display.
-  It is never read by the flood-fill/grouping logic -- only edge data
-  decides what's loaded together.
-- **Decoupling data from physics**: `src/engine/physics.py` only knows about
-  a 2D tile array and an AABB body -- it never imports `src/data`.
-  `src/engine/world_loader.py` only knows about data + caching -- it never
-  imports pygame or physics. `game_world.py` is the single place that wires
-  them together. This means a mod/DLC/expansion (or a procedural generator)
-  can ship a different `world_index.json` + `cells/` directory -- or even
-  build cells purely in memory -- and nothing in the physics or rendering
-  code needs to change.
-
-## Known simplifications (this is a base, not a finished game)
-
-- No sprites/animation, no enemies/combat, no save system.
-- Only straight east/west/south/north doors between axis-aligned rooms.
-- Camera centers on the player and clamps to the current room's bounds;
-  there's no cross-room scroll blending like retro Metroid's door transitions.
+- **Cell** = one world-map grid square, 16x10 tiles, one JSON file.
+  Never say "cell" for a map tile or a sprite.
+- **Tile** = one 16x16 game-px square inside a cell (kind + palette).
+  Kinds: `empty`, `solid`, `spring`, `oneway`, `crumble`.
+- **Room** = runtime group of cells joined by open edges (computed by
+  flood-fill, never authored); one room is assembled/rendered at a time.
+- **Edge** = one side of a cell: `wall` / `open` / `door`.
+- **Door** = an edge linked to another cell's edge (door id + target).
+- **Entity** = object placed at tile coords inside a cell
+  (`spawn_point`, `save_station`, `item_*`, `light`, `ambient_light`).
+- **Zone** = cosmetic area label (visual theme, title card, ambient).
+- **Palette** = named tile texture set (`palettes/` + `textures/`).
+- **Texture** = a PNG sheet for one tile kind of one palette.
+- **Sprite** = a built character/object sheet (`sprites/`) from a
+  hand-editable definition (`sprite_src/`).
+- **Frame** = one sub-image of a texture or sprite sheet (NOT a cell).
+- **Project** = one complete game's data folder + `project.json`.
+- **Template** = neutral starter project (`templates/starter/`) that
+  `new` copies; never edited via the editor.
+- **Fixture** = `tests/fixtures/demo_project/`, a frozen copy of the
+  sample game used only by tests.
+- **Export/Build** = bundling the fixed engine + a project's data into a
+  standalone playable folder.
+- **Playtest** = launching the project's game (optionally from a chosen
+  cell/tile) to try a build.

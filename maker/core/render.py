@@ -36,18 +36,7 @@ from maker.core.overlays import draw_overlays  # noqa: E402
 CELL_WIDTH_PX = CELL_WIDTH_TILES * TILE_SIZE
 CELL_HEIGHT_PX = CELL_HEIGHT_TILES * TILE_SIZE
 
-# Static editor renders have no in-game light sources besides the neutral
-# view-centre player light, so the zone's ambient is brightened a bit to
-# keep rooms readable; the game's render_frame is untouched (ambient=None).
-_AMBIENT_BOOST = 1.5
-
 _RENDERER = None
-
-
-def _view_ambient(zone: str) -> tuple:
-    pal = get_palette(zone)
-    ambient = pal.get("ambient", (205, 205, 215))
-    return tuple(min(255, int(c * _AMBIENT_BOOST)) for c in ambient)
 
 
 def ensure_pygame(headless: bool = True) -> None:
@@ -106,10 +95,9 @@ def render_view(model, room, cam_x, cam_y, tick=0, lighting=True,
     renderer = _get_renderer()
     if out is None:
         out = pygame.Surface((WINDOW_W, WINDOW_H))
-    ambient = _view_ambient(room.zone) if lighting else None
     renderer.render_static(out, room, cam_x, cam_y, tick=tick,
                            lighting=lighting, entities=entities,
-                           backdrop=backdrop, ambient=ambient)
+                           backdrop=backdrop)
     return out
 
 

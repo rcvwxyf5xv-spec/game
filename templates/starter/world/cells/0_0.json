@@ -1,0 +1,570 @@
+{
+  "coord": [
+    0,
+    0
+  ],
+  "zone": "Start",
+  "tiles": [
+    [
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      }
+    ],
+    [
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      }
+    ],
+    [
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      }
+    ],
+    [
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      }
+    ],
+    [
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      }
+    ],
+    [
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      }
+    ],
+    [
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      }
+    ],
+    [
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      }
+    ],
+    [
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "empty"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      }
+    ],
+    [
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      },
+      {
+        "kind": "solid",
+        "palette": "default"
+      }
+    ]
+  ],
+  "edges": {},
+  "entities": [
+    {
+      "type": "spawn_point",
+      "tile_x": 3,
+      "tile_y": 8
+    }
+  ],
+  "background_color": [
+    18,
+    18,
+    28
+  ]
+}

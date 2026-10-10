@@ -3,8 +3,10 @@ Project-aware data root.
 
 A Project is one complete game's data folder; the engine stays fixed and
 reads world, zones, palettes, textures and sprites from the active
-project. The default project is the in-repo demo (project.json at the
-engine root) unless METROIDVANIA_PROJECT points at another folder.
+project. The editor repo itself carries no game data: games live in
+projects/<name>/ (each its own folder) or anywhere else, and exported
+games carry their project.json at the export root so a bound copy of the
+engine running from that root finds it exactly like any other project.
 """
 
 from __future__ import annotations
@@ -17,6 +19,8 @@ from pathlib import Path
 PROJECT_FILE = "project.json"
 FORMAT_VERSION = 1
 ENGINE_ROOT = Path(__file__).resolve().parent.parent
+PROJECTS_DIR = ENGINE_ROOT / "projects"
+STARTER_TEMPLATE = ENGINE_ROOT / "templates" / "starter"
 
 DEFAULT_LAYOUT = {
     "world_index": "world/world_index.json",
@@ -110,13 +114,37 @@ def set_active(project: Project) -> None:
     _ACTIVE = project
 
 
+def default_project_root() -> Path:
+    """The project root to use when none is named explicitly.
+
+    Resolution order:
+      1. METROIDVANIA_PROJECT env var (a directory);
+      2. ENGINE_ROOT, but only when ENGINE_ROOT/project.json exists --
+         this is how EXPORTED games work (export puts project.json at the
+         export root, so the bound engine finds its own game);
+      3. the first (sorted) project folder under PROJECTS_DIR that has a
+         project.json;
+      4. STARTER_TEMPLATE (the neutral starter, used as a last-resort
+         fallback by tools that just need a valid project).
+    """
+    env = os.environ.get("METROIDVANIA_PROJECT")
+    if env:
+        return Path(env)
+    if (ENGINE_ROOT / PROJECT_FILE).is_file():
+        return ENGINE_ROOT
+    if PROJECTS_DIR.is_dir():
+        for d in sorted(PROJECTS_DIR.iterdir()):
+            if (d / PROJECT_FILE).is_file():
+                return d
+    return STARTER_TEMPLATE
+
+
 def active() -> Project:
-    """The active project: set_active() if used, else METROIDVANIA_PROJECT
-    env var (a directory), else the engine-root demo project."""
+    """The active project: set_active() if used, else the process-wide
+    default (see default_project_root)."""
     global _ACTIVE
     if _ACTIVE is None:
-        env = os.environ.get("METROIDVANIA_PROJECT")
-        _ACTIVE = Project.load(env) if env else Project.load(ENGINE_ROOT)
+        _ACTIVE = Project.load(default_project_root())
     return _ACTIVE
 
 

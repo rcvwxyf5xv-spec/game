@@ -34,7 +34,7 @@ from typing import List, Optional, Tuple
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
 from src.engine.constants import CELL_HEIGHT_TILES, CELL_WIDTH_TILES  # noqa: E402
-from src.project import ENGINE_ROOT, active  # noqa: E402
+from maker.state import resolve_startup_project  # noqa: E402
 
 from maker.core import assets, ops, project_ops, render, validate  # noqa: E402
 from maker.core.errors import OpError  # noqa: E402
@@ -242,7 +242,8 @@ def h_help_agent(args, model):
                  "[--no-validate] [--pretty] COMMAND ...",
         "global_flags": [
             "--project DIR   project folder (default: METROIDVANIA_PROJECT "
-            "env or the engine-root demo)",
+            "env, the last opened project, or the first project in "
+            "projects/)",
             "--dry-run       apply in memory + validate, do not save",
             "--no-validate   skip the before/after validation report",
             "--pretty        indent the JSON output",
@@ -262,7 +263,8 @@ def h_help_agent(args, model):
             "edge set / door link|unlink": "connect or break cell edges",
             "entity list|add|move|set|remove|types": "entity CRUD",
             "start set": "choose the start cell",
-            "zone list|get|set|rename|delete|color": "zone palette data",
+            "zone list|get|set|rename|delete|color|palette|apply-palette":
+                    "zone palette data and default palette (re-skin)",
             "palette list|get|create|set|colors|color|rename|delete|rebuild":
                     "palette data and texture generation",
             "texture import|unlock|export": "import PNG sheets or rebuild "
@@ -529,6 +531,18 @@ def h_zone_color(args, model):
                               _rgb(args.rgb, "color"), index=args.index)
 
 
+def h_zone_palette(args, model):
+    return ops.set_zone_palette(
+        model, args.NAME,
+        None if args.PALETTE in ("-", "none") else args.PALETTE)
+
+
+def h_zone_apply_palette(args, model):
+    return ops.apply_zone_palette(model, args.NAME,
+                                  palette=args.palette,
+                                  only_unset=args.only_unset)
+
+
 def h_palette_list(args, model):
     usage = model.palette_usage()
     out = []
@@ -665,9 +679,16 @@ def h_render(args, model):
 
 
 def h_new(args, model):
+    source = args.from_src
+    if args.template == "copy" and not source:
+        if model is not None:
+            source = model.project.root
+        else:
+            raise OpError(
+                "template 'copy' needs a source project (--from DIR)")
     dest = project_ops.create_project(
         args.DEST, args.name, title=args.title, template=args.template,
-        source=args.from_src)
+        source=source)
     return {"created": str(dest), "name": args.name,
             "template": args.template}
 
@@ -874,7 +895,17 @@ def build_parser() -> argparse.ArgumentParser:
     zc = zone_sub.add_parser("color"); _set_reg("zone-color", zc, h_zone_color, True)
     zc.add_argument("NAME"); zc.add_argument("KEY")
     zc.add_argument("rgb", metavar="r,g,b"); zc.add_argument("--index", type=int)
-    for s in ("list", "get", "set", "rename", "delete", "color"):
+    zp = zone_sub.add_parser("palette"); _set_reg("zone-palette", zp, h_zone_palette, True)
+    zp.add_argument("NAME")
+    zp.add_argument("PALETTE", metavar="PALETTE|-|none",
+                    help="palette name; '-' or 'none' clears the default")
+    za = zone_sub.add_parser("apply-palette"); _set_reg("zone-apply-palette", za, h_zone_apply_palette, True)
+    za.add_argument("NAME")
+    za.add_argument("--palette", help="palette name (default: the zone's default_palette)")
+    za.add_argument("--only-unset", action="store_true",
+                    help="only tiles that have no palette yet")
+    for s in ("list", "get", "set", "rename", "delete", "color",
+              "palette", "apply-palette"):
         zone_sub.choices[s].set_defaults(needs_model=True)
 
     p = cmd("palette", None, False, "palette subcommands")
@@ -975,9 +1006,10 @@ def _issue_signature(issue) -> tuple:
 
 
 def _load_model(args) -> ProjectModel:
-    if args.project:
-        return ProjectModel.open(Path(args.project))
-    return ProjectModel.open(active().root)
+    root = resolve_startup_project(explicit=args.project, create_missing=False)
+    if root is None:
+        raise OpError("no project; pass --project DIR or run `new`")
+    return ProjectModel.open(root)
 
 
 def _run(args):

@@ -124,14 +124,13 @@ def md5(path: Path) -> str:
 def main() -> int:
     from maker.core.model import ProjectModel
     from maker.core.project_ops import create_project
-    from src.project import ENGINE_ROOT
 
     if TMP.exists():
         shutil.rmtree(TMP)
     TMP.mkdir(parents=True)
     proj = TMP / "demo"
     create_project(proj, "guitest", "GUI Test", template="copy",
-                   source=ENGINE_ROOT)
+                   source=ROOT / "tests/fixtures/demo_project")
     pygame.init()
     model = ProjectModel.open(proj)
     original = {c: copy.deepcopy(model.cell(c)) for c in model.cell_coords()}
@@ -319,6 +318,30 @@ def main() -> int:
     check("zone accent set via hex field",
           model.zones[zname]["accent"] == [255, 0, 128])
     d.shot("zones")
+
+    # default palette picker + apply to zone tiles
+    d.click(d.button(zp.form, "...").rect.center)
+    d.click(d.menu_item("green_brinstar"))
+    d.frame()
+    check("zone default palette picker sets the key",
+          model.zones[zname].get("default_palette") == "green_brinstar")
+    d.click(d.button(zp.form, "Apply to zone tiles").rect.center)
+    d.frame()
+    check("apply to zone tiles asks for confirmation", bool(app.dialogs))
+    d.key(pygame.K_RETURN)
+    d.frame()
+    non_empty = [t for row in model.cell(start)["tiles"] for t in row
+                 if t.get("kind") != "empty"]
+    check("apply to zone tiles re-skinned the cell",
+          non_empty and all(t.get("palette") == "green_brinstar"
+                            for t in non_empty))
+    d.key(pygame.K_z, pygame.KMOD_META)
+    d.frame()
+    non_empty = [t for row in model.cell(start)["tiles"] for t in row
+                 if t.get("kind") != "empty"]
+    check("undo restores the zone re-skin",
+          all(t.get("palette") != "green_brinstar"
+              for t in non_empty))
 
     # ---- problems -------------------------------------------------------------
     sp = [i for i, e in enumerate(model.cell(start)["entities"])
