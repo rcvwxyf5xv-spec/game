@@ -413,8 +413,14 @@ user-defined — nothing Metroid-specific is required.
 
 `textures` maps each tile kind to a PNG sheet in
 `textures/<palette>/` plus its layout (`autotile16` for solid, else
-variants/frames/stages). `generator: "imported"` means the textures/
-folder is copied rather than procedurally rebuilt. `build.locked` marks
+variants/frames/stages). Procedural generators are `voxel_rock` (the
+built-in voxel relief renderers) and `mac_os9` (classic Mac OS 9
+platinum desktop chrome drawn by `tools/desktop_textures.py`, an
+autotile16 window grammar: exposed tops become titlebar chrome with
+close/zoom boxes, exposed sides are window borders, exposed bottoms a
+status-like edge, interiors the light client area).
+`generator: "imported"` means the
+textures/ folder is copied rather than procedurally rebuilt. `build.locked` marks
 kinds edited by PNG import.
 
 ### sprite_src/<name>.json — hand-editable sprite definitions

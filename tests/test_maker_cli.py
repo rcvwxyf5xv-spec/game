@@ -215,6 +215,136 @@ def test_palettes_textures(proj: Path) -> None:
           set(pal.get("build", {}).get("locked", [])) >= {"oneway", "solid"})
 
 
+def test_mac_os9_palette(proj: Path) -> None:
+    colors = {
+        "rock": [[v, v, v] for v in (32, 64, 96, 128, 170, 204, 221, 238)],
+        "cap": [[v, v, v] for v in (85, 119, 153, 187, 204, 221, 238, 255)],
+        "accent": [51, 85, 153],
+    }
+    data = {
+        "display_name": "Mac OS 9 Platinum",
+        "tile_px": 48,
+        "build": {"generator": "mac_os9", "colors": colors},
+        "textures": {
+            "solid":   {"file": "solid.png",   "layout": "autotile16",
+                        "variants": 4, "overhang_px": 0},
+            "oneway":  {"file": "oneway.png",  "layout": "variants",
+                        "variants": 4},
+            "spring":  {"file": "spring.png",  "layout": "frames",
+                        "frames": 3, "frame_ticks": 6},
+            "crumble": {"file": "crumble.png", "layout": "stages",
+                        "stages": 4},
+        },
+    }
+    code, out = cli("palette", "create", "macos9", project=proj)
+    check("macos9 create", code == 0 and out["ok"])
+    code, out = cli("palette", "set", "macos9", "--json", json.dumps(data),
+                    project=proj)
+    check("macos9 set --json parser + mac_os9 build",
+          code == 0 and out["ok"])
+    pal = json.loads((proj / "palettes/macos9.json").read_text())
+    check("macos9 palette data",
+          pal.get("build", {}).get("generator") == "mac_os9"
+          and pal.get("display_name") == "Mac OS 9 Platinum")
+    tex = proj / "textures" / "macos9"
+    check("macos9 sheet dimensions",
+          png_size(tex / "solid.png") == (192, 768)
+          and png_size(tex / "oneway.png") == (192, 48)
+          and png_size(tex / "spring.png") == (144, 48)
+          and png_size(tex / "crumble.png") == (192, 48))
+
+    import pygame
+    pygame.init()
+    solid = pygame.image.load(str(tex / "solid.png"))
+    rock0 = tuple(colors["rock"][0])
+    cap1 = tuple(colors["cap"][1])
+    cap2 = tuple(colors["cap"][2])
+    cap5 = tuple(colors["cap"][5])
+    cap6 = tuple(colors["cap"][6])
+    cap7 = tuple(colors["cap"][7])
+
+    def at(mask, col, row):
+        return tuple(solid.get_at(
+            (col * 3 + 1, mask * 48 + row * 3 + 1)))[:3]
+
+    body = at(15, 0, 8)
+    check("interior solid is light client fill",
+          body in (cap5, cap6) and body != rock0)
+    check("W-exposed left border",
+          at(7, 0, 8) == rock0 and at(7, 1, 8) == cap7 and at(7, 15, 8) != rock0)
+    check("E-exposed right border",
+          at(13, 15, 8) == rock0 and at(13, 14, 8) == cap1)
+    check("titlebar chrome + close/zoom boxes",
+          at(14, 8, 0) == rock0 and at(14, 8, 1) == cap7 and at(14, 8, 3) == cap2
+          and at(6, 2, 2) == cap7 and at(6, 2, 3) == rock0
+          and at(12, 13, 2) == cap7 and at(12, 12, 4) == rock0)
+
+    one = pygame.image.load(str(tex / "oneway.png"))
+    check("oneway shelf opaque, transparent below",
+          one.get_at((24, 4))[3] == 255 and one.get_at((24, 40))[3] == 0)
+
+    h0 = md5(tex / "solid.png")
+    code, out = cli("palette", "rebuild", "macos9", project=proj)
+    check("macos9 rebuild deterministic",
+          code == 0 and md5(tex / "solid.png") == h0)
+
+
+def test_mac_os9_locked(proj: Path) -> None:
+    import pygame
+    tex = proj / "textures" / "macos9"
+    one48 = TMP / "macos9_oneway48.png"
+    write_png(one48, 48, 48, (90, 90, 120, 255))
+    code, out = cli("texture", "import", "macos9", "oneway", one48,
+                    project=proj)
+    check("import locks macos9 oneway",
+          code == 0 and png_size(tex / "oneway.png") == (48, 48))
+    h_lock = md5(tex / "oneway.png")
+    pal = json.loads((proj / "palettes/macos9.json").read_text())
+    code, out = cli("palette", "rebuild", "macos9", project=proj)
+    check("locked oneway preserved on rebuild",
+          "oneway" in pal.get("build", {}).get("locked", [])
+          and md5(tex / "oneway.png") == h_lock
+          and png_size(tex / "solid.png") == (192, 768))
+
+    def frame_md5(sheet, i):
+        return hashlib.md5(
+            pygame.image.tostring(sheet.subsurface((i * 48, 0, 48, 48)),
+                                  "RGBA")).hexdigest()
+
+    spring = pygame.image.load(str(tex / "spring.png"))
+    check("spring frames distinct",
+          len({frame_md5(spring, i) for i in range(3)}) == 3)
+    crum = pygame.image.load(str(tex / "crumble.png"))
+    check("crumble stages distinct",
+          len({frame_md5(crum, i) for i in range(4)}) == 4)
+    check("crumble stage3 shows gaps",
+          any(crum.get_at((3 * 48 + x, y))[3] == 0
+              for x in range(48) for y in range(48)))
+
+    from src.gfx.texture_registry import TextureRegistry
+    reg = TextureRegistry(proj / "palettes", proj / "textures")
+    surf, y_off = reg.get("macos9", "solid", mask=15)
+    check("TextureRegistry serves macos9 sheets",
+          surf is not None and y_off == 0)
+
+    batch = [
+        {"op": "fill_rect", "coord": [1, 0], "x0": 2, "y0": 1, "x1": 8,
+         "y1": 2, "kind": "solid", "palette": "macos9"},
+        {"op": "set_tiles", "coord": [1, 0], "points": [[3, 4], [4, 4]],
+         "kind": "oneway", "palette": "macos9"},
+        {"op": "set_tiles", "coord": [1, 0], "points": [[6, 4]],
+         "kind": "spring", "palette": "macos9"},
+        {"op": "set_tiles", "coord": [1, 0], "points": [[7, 4]],
+         "kind": "crumble", "palette": "macos9"},
+    ]
+    code, out = cli("batch", project=proj, stdin=json.dumps(batch))
+    check("macos9 paint batch", code == 0 and out["ok"])
+    room_png = TMP / "macos9_room.png"
+    code, out = cli("render", "0,0", "--room", "-o", room_png, project=proj)
+    check("macos9 room render in test project",
+          code == 0 and room_png.exists() and png_size(room_png) == (1536, 480))
+
+
 def test_zone_palette(proj: Path) -> None:
     code, out = cli("zone", "palette", "Start", "mossy", project=proj)
     check("zone palette sets the default",
@@ -325,6 +455,8 @@ def main() -> int:
     test_batch_and_dry_run(proj)
     test_render(proj)
     test_palettes_textures(proj)
+    test_mac_os9_palette(proj)
+    test_mac_os9_locked(proj)
     test_zone_palette(proj)
     test_export(proj)
     test_demo_screens()

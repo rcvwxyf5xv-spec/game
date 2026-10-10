@@ -109,7 +109,12 @@ def build_palette(name: str, palettes_dir: Path, textures_dir: Path) -> list:
         return written
     pal = json.loads(path.read_text())
     generator = pal.get("build", {}).get("generator", "")
-    if generator != "voxel_rock":
+    if generator == "mac_os9":
+        from tools.desktop_textures import build_sheet
+        builder = lambda kind, spec: build_sheet(pal, colors, kind, spec)
+    elif generator == "voxel_rock":
+        builder = lambda kind, spec: _BUILDERS[kind](pal, colors, name, spec)
+    else:
         print(f"warning: unknown generator {generator!r} for {name}, skipping")
         return written
     colors = pal["build"]["colors"]
@@ -120,7 +125,7 @@ def build_palette(name: str, palettes_dir: Path, textures_dir: Path) -> list:
         if kind in locked:
             print(f"  skipping locked {kind} (imported texture kept as-is)")
             continue
-        sheet = _BUILDERS[kind](pal, colors, name, spec)
+        sheet = builder(kind, spec)
         rel_out = out_dir / spec["file"]
         pygame.image.save(sheet, str(rel_out))
         written.append(rel_out)
